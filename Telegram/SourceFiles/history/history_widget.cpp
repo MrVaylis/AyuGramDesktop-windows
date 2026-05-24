@@ -68,6 +68,7 @@ https://github.com/telegramdesktop/tdesktop/blob/master/LEGAL
 #include "base/call_delayed.h"
 #include "data/business/data_shortcut_messages.h"
 #include "data/components/credits.h"
+#include "data/components/recent_inline_bots.h"
 #include "data/components/scheduled_messages.h"
 #include "data/components/sponsored_messages.h"
 #include "data/notify/data_notify_settings.h"
@@ -2257,6 +2258,14 @@ void HistoryWidget::fileChosen(ChatHelpers::FileChosen &&data) {
 	}
 }
 
+bool HistoryWidget::processChosenSticker(ChatHelpers::FileChosen &&chosen) {
+	if (!_peer) {
+		return false;
+	}
+	fileChosen(std::move(chosen));
+	return true;
+}
+
 void HistoryWidget::saveCloudDraft() {
 	controller()->session().api().saveCurrentDraftToCloud();
 }
@@ -2846,6 +2855,7 @@ void HistoryWidget::showHistory(
 		updateBotKeyboard();
 
 		_subsectionCheckLifetime.destroy();
+		_subsectionTopicsLifetime.destroy();
 		if (_subsectionTabs) {
 			_subsectionTabsLifetime.destroy();
 			controller()->saveSubsectionTabs(base::take(_subsectionTabs));
@@ -4948,9 +4958,7 @@ void HistoryWidget::saveEditMessage(Api::SendOptions options) {
 			|| !webPageDraft.manual)
 		&& !hasMediaWithCaption) {
 		if (item->computeSuggestionActions() == SuggestionActions::None) {
-			const auto suggestModerateActions = false;
-			controller()->show(
-				Box<DeleteMessagesBox>(item, suggestModerateActions));
+			controller()->show(Box<DeleteMessagesBox>(item));
 		}
 		return;
 	} else {
@@ -5723,7 +5731,7 @@ void HistoryWidget::sendButtonClicked() {
 
 void HistoryWidget::leaveEventHook(QEvent *e) {
 	if (hasMouseTracking()) {
-		mouseMoveEvent(nullptr);
+		clearOverStates();
 	}
 }
 
@@ -5774,10 +5782,30 @@ void HistoryWidget::updateOverStates(QPoint pos) {
 	}
 }
 
+void HistoryWidget::clearOverStates() {
+	if (_inPhotoEdit) {
+		_inPhotoEdit = false;
+		if (_photoEditMedia) {
+			_inPhotoEditOver.start(
+				[=] { updateField(); },
+				1.,
+				0.,
+				st::defaultMessageBar.duration);
+		} else {
+			_inPhotoEditOver.stop();
+		}
+	}
+	_inDetails = false;
+	if (_inClickable) {
+		_inClickable = false;
+		setCursor(style::cur_default);
+	}
+}
+
 void HistoryWidget::leaveToChildEvent(QEvent *e, QWidget *child) {
 // e -- from enterEvent() of child RpWidget
 	if (hasMouseTracking()) {
-		updateOverStates(mapFromGlobal(QCursor::pos()));
+		clearOverStates();
 	}
 }
 
@@ -6216,9 +6244,12 @@ bool HistoryWidget::searchInChatEmbedded(
 		Dialogs::Key chat,
 		PeerData *searchFrom) {
 	const auto peer = chat.peer(); // windows todo
+	const auto archiveWindow = (controller()->windowId().type
+		== Window::SeparateType::Archive);
 	if (!peer
 		|| ((Window::SeparateId(peer) != controller()->windowId())
-			&& !controller()->isPrimary())) {
+			&& !controller()->isPrimary()
+			&& !archiveWindow)) {
 		return false;
 	} else if (_peer != peer) {
 		const auto weak = base::make_weak(this);
@@ -8417,17 +8448,7 @@ void HistoryWidget::sendInlineResult(InlineBots::ResultSelected result) {
 	clearFieldText();
 	saveDraftWithTextNow();
 
-	auto &bots = cRefRecentInlineBots();
-	const auto index = bots.indexOf(result.bot);
-	if (index) {
-		if (index > 0) {
-			bots.removeAt(index);
-		} else if (bots.size() >= RecentInlineBotsLimit) {
-			bots.resize(RecentInlineBotsLimit - 1);
-		}
-		bots.push_front(result.bot);
-		session().local().writeRecentHashtagsAndBots();
-	}
+	session().recentInlineBots().bump(result.bot);
 
 	hideSelectorControlsAnimated();
 
@@ -9111,27 +9132,54 @@ void HistoryWidget::showPremiumToast(not_null<DocumentData*> document) {
 }
 
 void HistoryWidget::validateSubsectionTabs() {
-	if (!_subsectionCheckLifetime
-		&& _history
-		&& _history->peer->isMegagroup()) {
-		_subsectionCheckLifetime = _history->peer->asChannel()->flagsValue(
-		) | rpl::skip(
-			1
-		) | rpl::filter([=](Data::Flags<ChannelDataFlags>::Change change) {
-			const auto mask = ChannelDataFlag::Forum
-				| ChannelDataFlag::ForumTabs
-				| ChannelDataFlag::MonoforumAdmin;
-			return change.diff & mask;
-		}) | rpl::on_next([=] {
-			validateSubsectionTabs();
-		});
+	if (!_subsectionCheckLifetime && _history) {
+		if (const auto group = _history->peer->asMegagroup()) {
+			_subsectionCheckLifetime = group->flagsValue(
+			) | rpl::skip(
+				1
+			) | rpl::filter([=](Data::Flags<ChannelDataFlags>::Change change) {
+				const auto mask = ChannelDataFlag::Forum
+					| ChannelDataFlag::ForumTabs
+					| ChannelDataFlag::MonoforumAdmin;
+				return change.diff & mask;
+			}) | rpl::on_next([=] {
+				validateSubsectionTabs();
+			});
+		} else if (const auto user = _history->peer->asBot()) {
+			_subsectionCheckLifetime = user->flagsValue(
+			) | rpl::skip(
+				1
+			) | rpl::filter([=](Data::Flags<UserDataFlags>::Change change) {
+				return change.diff & UserDataFlag::Forum;
+			}) | rpl::on_next([=] {
+				_subsectionTopicsLifetime.destroy();
+				validateSubsectionTabs();
+			});
+		}
+	}
+	if (_history && !_subsectionTopicsLifetime) {
+		if (const auto user = _history->peer->asBot()) {
+			if (const auto forum = user->forum()) {
+				_subsectionTopicsLifetime = forum->topicsList()->fullSize().value(
+				) | rpl::map([](int size) {
+					return size > 0;
+				}) | rpl::distinct_until_changed(
+				) | rpl::skip(
+					1
+				) | rpl::on_next([=] {
+					validateSubsectionTabs();
+				});
+			}
+		}
 	}
 	if (!_history || !HistoryView::SubsectionTabs::UsedFor(_history)) {
 		if (_subsectionTabs) {
 			_subsectionTabsLifetime.destroy();
 			_subsectionTabs = nullptr;
 			updateControlsGeometry();
-			if (const auto forum = _history->asForum()) {
+
+			const auto forum = _history ? _history->asForum() : nullptr;
+			if (forum && !_history->peer->isUser()) {
 				controller()->showForum(forum, {
 					Window::SectionShow::Way::Backward,
 					anim::type::normal,
@@ -9782,7 +9830,7 @@ void HistoryWidget::confirmDeleteSelected() {
 		const auto opt = DefaultModerateMessagesBoxOptions();
 		controller()->show(Box(
 			CreateModerateMessagesBox,
-			items,
+			ModerateMessagesBoxEntry{ .items = items },
 			crl::guard(this, [=] { clearSelected(); }),
 			opt));
 	} else {
@@ -10467,6 +10515,7 @@ HistoryWidget::~HistoryWidget() {
 		session().data().itemVisibilitiesUpdated();
 	}
 	_subsectionTabsLifetime.destroy();
+	_subsectionTopicsLifetime.destroy();
 	_subsectionTabs = nullptr;
 	setTabbedPanel(nullptr);
 }

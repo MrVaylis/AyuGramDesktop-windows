@@ -63,6 +63,11 @@ struct PsaTooltipState : RuntimeComponent<PsaTooltipState, Element> {
 	mutable bool buttonVisible = true;
 };
 
+struct InstantViewMediaRuntime
+: RuntimeComponent<InstantViewMediaRuntime, Element> {
+	QString pageUrl;
+};
+
 enum class BadgeRole : uchar {
 	User,
 	Admin,
@@ -108,6 +113,8 @@ struct BottomRippleMask {
 	QImage image;
 	int shift = 0;
 };
+
+extern const char kOptionUnlimitedMessageWidth[];
 
 class Message final : public Element {
 public:
@@ -213,6 +220,8 @@ public:
 	QRect innerGeometry() const override;
 	QPoint mediaTopLeft() const override;
 	[[nodiscard]] BottomRippleMask bottomRippleMask(int buttonHeight) const;
+
+	void setInstantViewMediaRuntime(QString pageUrl);
 
 private:
 	struct CommentsButton;

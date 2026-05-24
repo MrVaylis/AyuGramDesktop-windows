@@ -10,11 +10,13 @@ https://github.com/telegramdesktop/tdesktop/blob/master/LEGAL
 #include "api/api_blocked_peers.h"
 #include "api/api_chat_participants.h"
 #include "api/api_credits.h"
+#include "api/api_report.h"
 #include "api/api_statistics.h"
 #include "apiwrap.h"
 #include "base/call_delayed.h"
 #include "base/event_filter.h"
 #include "base/options.h"
+#include "base/qt/qt_key_modifiers.h"
 #include "base/timer_rpl.h"
 #include "base/unixtime.h"
 #include "boxes/peers/add_bot_to_chat_box.h"
@@ -51,6 +53,7 @@ https://github.com/telegramdesktop/tdesktop/blob/master/LEGAL
 #include "history/history_item_components.h"
 #include "history/history_item_helpers.h"
 #include "history/view/history_view_item_preview.h"
+#include "history/view/reactions/history_view_reactions_list.h"
 #include "info/bot/earn/info_bot_earn_widget.h"
 #include "info/bot/starref/info_bot_starref_common.h"
 #include "info/channel_statistics/earn/earn_format.h"
@@ -95,6 +98,7 @@ https://github.com/telegramdesktop/tdesktop/blob/master/LEGAL
 #include "ui/wrap/vertical_layout.h"
 #include "window/window_controller.h" // Window::Controller::show.
 #include "window/window_peer_menu.h"
+#include "window/window_separate_id.h"
 #include "window/window_session_controller.h"
 #include "styles/style_boxes.h"
 #include "styles/style_channel_earn.h" // st::channelEarnCurrencyCommonMargins
@@ -121,6 +125,21 @@ namespace Profile {
 namespace {
 
 constexpr auto kDay = Data::WorkingInterval::kDay;
+
+class DraggableUrlClickHandler final : public UrlClickHandler {
+public:
+	DraggableUrlClickHandler(const QString &url, QString drag)
+	: UrlClickHandler(url, false)
+	, _drag(std::move(drag)) {
+	}
+	QString dragText() const override {
+		return _drag;
+	}
+
+private:
+	const QString _drag;
+
+};
 
 base::options::toggle ShowPeerIdBelowAbout({
 	.id = kOptionShowPeerIdBelowAbout,
@@ -1004,7 +1023,7 @@ auto AddActionButton(
 };
 
 template <typename Text, typename ToggleOn, typename Callback>
-[[nodiscard]] auto AddMainButton(
+auto AddMainButton(
 		not_null<Ui::VerticalLayout*> parent,
 		Text &&text,
 		ToggleOn &&toggleOn,
@@ -1023,6 +1042,7 @@ template <typename Text, typename ToggleOn, typename Callback>
 	if (buttonTracker) {
 		buttonTracker->track(button);
 	}
+	return button->entity();
 }
 
 rpl::producer<CreditsAmount> AddCurrencyAction(
@@ -1230,6 +1250,10 @@ private:
 	void addReportReaction(
 		Ui::MultiSlideTracker &tracker,
 		Ui::MultiSlideTracker *buttonTracker);
+	void addDeleteReaction(
+		GroupReactionOrigin data,
+		Ui::MultiSlideTracker &tracker,
+		Ui::MultiSlideTracker *buttonTracker);
 	void addReportReaction(
 		GroupReactionOrigin data,
 		bool ban,
@@ -1327,13 +1351,11 @@ void ReportReactionBox(
 					ChatRestrictionsInfo());
 			}
 		}
-		data.group->session().api().request(MTPmessages_ReportReaction(
-			data.group->input(),
-			MTP_int(data.messageId.bare),
-			participant->input()
-		)).done(crl::guard(controller, [=] {
-			controller->showToast(tr::lng_report_thanks(tr::now));
-		})).send();
+		Api::ReportReaction(
+			controller->uiShow(),
+			data.group,
+			data.messageId,
+			participant);
 		sent();
 		box->closeBox();
 	}, st::attentionBoxButton);
@@ -1760,6 +1782,19 @@ object_ptr<Ui::RpWidget> DetailsFiller::setupInfo() {
 		usernameLine.subtext->overrideLinkClickHandler(callback);
 		usernameLine.text->setContextMenuHook(lnkHook);
 		usernameLine.subtext->setContextMenuHook(lnkHook);
+		UsernameValue(
+			user,
+			true
+		) | rpl::on_next([=, label = usernameLine.text](
+				const TextWithEntities &u) {
+			if (u.text.isEmpty()) {
+				return;
+			}
+			const auto username = u.text.mid(1);
+			label->setLink(1, std::make_shared<DraggableUrlClickHandler>(
+				UsernameUrl(user, username),
+				user->session().createInternalLinkFull(username)));
+		}, usernameLine.text->lifetime());
 
 		const auto qrButton = Ui::CreateChild<Ui::IconButton>(
 			usernameLine.text->parentWidget(),
@@ -1869,6 +1904,18 @@ object_ptr<Ui::RpWidget> DetailsFiller::setupInfo() {
 		linkLine.subtext->overrideLinkClickHandler(linkCallback);
 		linkLine.text->setContextMenuHook(lnkHook);
 		linkLine.subtext->setContextMenuHook(lnkHook);
+		LinkValue(
+			_peer,
+			true,
+			topicRootId
+		) | rpl::on_next([=, label = linkLine.text](const LinkWithUrl &link) {
+			if (link.text.isEmpty()) {
+				return;
+			}
+			label->setLink(1, std::make_shared<DraggableUrlClickHandler>(
+				addToLink.isEmpty() ? link.url : (link.text + addToLink),
+				link.text + addToLink));
+		}, linkLine.text->lifetime());
 		if (!topicRootId || !_peer->username().isEmpty()) {
 			const auto qr = Ui::CreateChild<Ui::IconButton>(
 				linkLine.text->parentWidget(),
@@ -2260,11 +2307,47 @@ object_ptr<Ui::RpWidget> DetailsFiller::setupPersonalChannel(
 				) | rpl::on_next([=](const QRect &rect) {
 					button->setGeometry(rect);
 				}, button->lifetime());
-				button->setClickedCallback([=, msg = item->fullId().msg] {
+				const auto channelPeer = item->history()->peer;
+				const auto msg = item->fullId().msg;
+				const auto openInWindow = [=] {
+					window->showInNewWindow(
+						Window::SeparateId(channelPeer),
+						msg);
+				};
+				const auto openInCurrent = [=] {
 					window->showPeerHistory(
-						item->history()->peer,
+						channelPeer,
 						Window::SectionShow::Way::Forward,
 						msg);
+				};
+				button->setAcceptBoth();
+				struct State {
+					base::unique_qptr<Ui::PopupMenu> menu;
+				};
+				const auto state
+					= button->lifetime().make_state<State>();
+				button->addClickHandler([=](Qt::MouseButton mouse) {
+					if (mouse == Qt::RightButton) {
+						state->menu = base::make_unique_q<Ui::PopupMenu>(
+							button,
+							st::popupMenuWithIcons);
+						state->menu->addAction(
+							tr::lng_context_new_window(tr::now),
+							[=] {
+								base::call_delayed(
+									st::popupMenuWithIcons.showDuration,
+									crl::guard(button, openInWindow));
+							},
+							&st::menuIconNewWindow);
+						state->menu->popup(QCursor::pos());
+						return;
+					}
+					if (base::IsCtrlPressed()
+						|| mouse == Qt::MiddleButton) {
+						openInWindow();
+					} else {
+						openInCurrent();
+					}
 				});
 				button->lower();
 				inner->lifetime().make_state<base::unique_qptr<Ui::RpWidget>>(
@@ -2395,25 +2478,62 @@ void DetailsFiller::addReportReaction(
 		Ui::MultiSlideTracker &tracker,
 		Ui::MultiSlideTracker *buttonTracker) {
 	v::match(_origin.data, [&](GroupReactionOrigin data) {
-		const auto user = _peer->asUser();
 		if (_peer->isSelf()) {
 			return;
-#if 0 // Only public groups allow reaction reports for now.
-		} else if (const auto chat = data.group->asChat()) {
-			const auto ban = chat->canBanMembers()
-				&& (!user || !chat->admins.contains(_peer))
-				&& (!user || chat->creator != user->id);
-			addReportReaction(data, ban, tracker);
-#endif
-		} else if (const auto channel = data.group->asMegagroup()) {
-			if (channel->isPublic()) {
-				const auto ban = channel->canBanMembers()
-					&& (!user || !channel->mgInfo->admins.contains(user->id))
-					&& (!user || channel->mgInfo->creator != user);
-				addReportReaction(data, ban, tracker, buttonTracker);
-			}
+		}
+		if (HistoryView::Reactions::CanModerateReactionByDeleteMessages(
+				data.group)) {
+			addDeleteReaction(data, tracker, buttonTracker);
+			return;
+		}
+		const auto capabilities = Api::GetReactionReportCapabilities(
+			data.group,
+			_peer);
+		if (capabilities.canReport) {
+			addReportReaction(
+				data,
+				capabilities.canBan,
+				tracker,
+				buttonTracker);
 		}
 	}, [](const auto &) {});
+}
+
+void DetailsFiller::addDeleteReaction(
+		GroupReactionOrigin data,
+		Ui::MultiSlideTracker &tracker,
+		Ui::MultiSlideTracker *buttonTracker) {
+	const auto peer = _peer;
+	if (!peer) {
+		return;
+	}
+	const auto controller = _controller->parentController();
+	const auto wrap = _wrap->add(
+		object_ptr<Ui::SlideWrap<Ui::VerticalLayout>>(
+			_wrap.data(),
+			object_ptr<Ui::VerticalLayout>(_wrap.data())));
+	Ui::AddSkip(wrap->entity());
+	auto shown = rpl::single(true);
+	wrap->toggleOn(rpl::duplicate(shown));
+	rpl::duplicate(shown) | rpl::on_next([=](bool shown) {
+		if (shown) {
+			_dividerOverridden.force_assign(false);
+		}
+	}, wrap->lifetime());
+	AddMainButton(
+		_wrap,
+		tr::lng_context_delete_this_reaction(),
+		std::move(shown),
+		[=] {
+			HistoryView::Reactions::ShowModerateReactionBox(
+				controller,
+				data.group,
+				data.messageId,
+				peer);
+		},
+		tracker,
+		buttonTracker,
+		st::infoMainButtonAttention);
 }
 
 void DetailsFiller::addReportReaction(
@@ -2483,19 +2603,54 @@ void DetailsFiller::addViewChannelButton(
 		_controller->wrapValue(),
 		std::move(activePeerValue),
 		(_1 != Wrap::Side) || (_2 != channel));
-	auto viewChannel = [=] {
+	const auto openInWindow = [=] {
+		window->showInNewWindow(Window::SeparateId(channel));
+	};
+	const auto openInCurrent = [=] {
 		window->showPeerHistory(
 			channel,
 			Window::SectionShow::Way::Forward);
 	};
+	struct State {
+		base::unique_qptr<Ui::PopupMenu> menu;
+	};
+	const auto state = wrap->lifetime().make_state<State>();
+	auto viewChannel = [=](Qt::MouseButton mouse) {
+		if (mouse == Qt::RightButton) {
+			return;
+		}
+		if (base::IsCtrlPressed() || mouse == Qt::MiddleButton) {
+			openInWindow();
+		} else {
+			openInCurrent();
+		}
+	};
 	wrap->toggleOn(rpl::duplicate(viewChannelVisible));
-	AddMainButton(
+	const auto button = AddMainButton(
 		wrap->entity(),
 		tr::lng_profile_view_channel(),
 		std::move(viewChannelVisible),
 		std::move(viewChannel),
 		tracker,
 		buttonTracker);
+	button->setAcceptBoth();
+	button->addClickHandler([=](Qt::MouseButton mouse) {
+		if (mouse != Qt::RightButton) {
+			return;
+		}
+		state->menu = base::make_unique_q<Ui::PopupMenu>(
+			button,
+			st::popupMenuWithIcons);
+		state->menu->addAction(
+			tr::lng_context_new_window(tr::now),
+			[=] {
+				base::call_delayed(
+					st::popupMenuWithIcons.showDuration,
+					crl::guard(button, openInWindow));
+			},
+			&st::menuIconNewWindow);
+		state->menu->popup(QCursor::pos());
+	});
 }
 
 void DetailsFiller::addShowTopicsListButton(
@@ -2606,7 +2761,7 @@ object_ptr<Ui::RpWidget> DetailsFiller::fill() {
 				}
 			}
 		}
-		if (!user->isSelf() && !_sublist) {
+		if (!_sublist) {
 			addReportReaction(_mainTracker, &lastButtonTracker);
 		}
 	} else if (const auto channel = _peer->asChannel()) {
@@ -2691,7 +2846,7 @@ void ActionsFiller::addAffiliateProgram(not_null<UserData*> user) {
 		rpl::duplicate(commission),
 		recipients->open,
 		st::infoSharedMediaCountButton,
-		{ .icon = &st::menuIconSharing, .newBadge = true }));
+		{ .icon = &st::menuIconSharing }));
 	Ui::AddSkip(inner);
 	Ui::AddDividerText(
 		inner,

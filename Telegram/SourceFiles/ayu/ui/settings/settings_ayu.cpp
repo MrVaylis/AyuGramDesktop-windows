@@ -659,6 +659,12 @@ void BuildSpyEssentials(SectionBuilder &builder, AyuSectionBuilder &ayu) {
 		.getter = &AyuSettings::saveForBots,
 		.setter = &AyuSettings::setSaveForBots,
 	});
+	ayu.addSettingToggle({
+		.id = u"ayu/excludeBotsInGroups"_q,
+		.title = tr::ayu_MessageSavingExcludeBotsInGroups(),
+		.getter = &AyuSettings::excludeBotsInGroups,
+		.setter = &AyuSettings::setExcludeBotsInGroups,
+	});
 }
 
 void BuildOther(SectionBuilder &builder, AyuSectionBuilder &ayu) {
@@ -675,6 +681,12 @@ void BuildOther(SectionBuilder &builder, AyuSectionBuilder &ayu) {
 		.title = tr::ayu_DisableAds(),
 		.getter = &AyuSettings::disableAds,
 		.setter = &AyuSettings::setDisableAds,
+	});
+	ayu.addSettingToggle({
+		.id = u"ayu/improveDC5Connection"_q,
+		.title = rpl::single(QString("Improve DC5 connection")),
+		.getter = &AyuSettings::improveDC5Connection,
+		.setter = &AyuSettings::setImproveDC5Connection,
 	});
 }
 

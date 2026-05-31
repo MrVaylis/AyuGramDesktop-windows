@@ -14,6 +14,7 @@
 #include "core/application.h"
 #include "features/filters/filters_cache_controller.h"
 #include "features/translator/ayu_translator.h"
+#include "main/main_account.h"
 #include "main/main_domain.h"
 #include "main/main_session.h"
 #include "platform/platform_translate_provider.h"
@@ -22,6 +23,8 @@
 
 #include <fstream>
 #include <QApplication>
+
+#include "mtproto/mtproto_dc_options.h"
 
 using json = nlohmann::json;
 
@@ -413,6 +416,8 @@ void AyuSettings::load() {
 	}
 
 	settings.validate();
+
+	MTP::DcOptions::SetImproveDC5(settings.improveDC5Connection());
 }
 
 void AyuSettings::save() {
@@ -547,6 +552,12 @@ void AyuSettings::setSaveMessagesHistory(bool val) {
 void AyuSettings::setSaveForBots(bool val) {
 	if (_saveForBots.current() == val) return;
 	_saveForBots = val;
+	save();
+}
+
+void AyuSettings::setExcludeBotsInGroups(bool val) {
+	if (_excludeBotsInGroups.current() == val) return;
+	_excludeBotsInGroups = val;
 	save();
 }
 
@@ -1036,6 +1047,16 @@ void AyuSettings::setCrashReporting(bool val) {
 	save();
 }
 
+void AyuSettings::setImproveDC5Connection(bool val) {
+	if (_improveDC5Connection.current() == val) return;
+	_improveDC5Connection = val;
+	MTP::DcOptions::SetImproveDC5(val);
+	for (const auto &[index, account] : Core::App().domain().accounts()) {
+		account->mtp().dcOptions().refresh();
+	}
+	save();
+}
+
 void AyuSettings::setAvatarCorners(int val) {
 	if (_avatarCorners.current() == val) return;
 	_avatarCorners = val;
@@ -1062,6 +1083,7 @@ void to_json(nlohmann::json &j, const AyuSettings &s) {
 		{"saveDeletedMessages", s._saveDeletedMessages.current()},
 		{"saveMessagesHistory", s._saveMessagesHistory.current()},
 		{"saveForBots", s._saveForBots.current()},
+		{"excludeBotsInGroups", s._excludeBotsInGroups.current()},
 		{"shadowBanIds", s._shadowBanIds},
 		{"filtersEnabled", s._filtersEnabled.current()},
 		{"filtersEnabledInChats", s._filtersEnabledInChats.current()},
@@ -1142,6 +1164,7 @@ void to_json(nlohmann::json &j, const AyuSettings &s) {
 		{"crashReporting", s._crashReporting.current()},
 		{"avatarCorners", s._avatarCorners.current()},
 		{"singleCornerRadius", s._singleCornerRadius.current()},
+		{"improveDC5Connection", s._improveDC5Connection.current()},
 		{"messageShotSettings", s._messageShotSettings}
 	};
 }
@@ -1162,6 +1185,7 @@ void from_json(const nlohmann::json &j, AyuSettings &s) {
 	s._saveDeletedMessages = j.value("saveDeletedMessages", defaults._saveDeletedMessages.current());
 	s._saveMessagesHistory = j.value("saveMessagesHistory", defaults._saveMessagesHistory.current());
 	s._saveForBots = j.value("saveForBots", defaults._saveForBots.current());
+	s._excludeBotsInGroups = j.value("excludeBotsInGroups", defaults._excludeBotsInGroups.current());
 	s._shadowBanIds = j.value("shadowBanIds", defaults._shadowBanIds);
 	s._filtersEnabled = j.value("filtersEnabled", defaults._filtersEnabled.current());
 	s._filtersEnabledInChats = j.value("filtersEnabledInChats", defaults._filtersEnabledInChats.current());
@@ -1242,6 +1266,7 @@ void from_json(const nlohmann::json &j, AyuSettings &s) {
 	s._crashReporting = j.value("crashReporting", defaults._crashReporting.current());
 	s._avatarCorners = j.value("avatarCorners", defaults._avatarCorners.current());
 	s._singleCornerRadius = j.value("singleCornerRadius", defaults._singleCornerRadius.current());
+	s._improveDC5Connection = j.value("improveDC5Connection", defaults._improveDC5Connection.current());
 
 	if (j.contains("messageShotSettings") && j["messageShotSettings"].is_object()) {
 		j["messageShotSettings"].get_to(s._messageShotSettings);

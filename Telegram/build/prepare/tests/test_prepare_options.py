@@ -19,11 +19,19 @@ def functions(platform='win64', options=()):
         re=re, os=os, keysLoc='cache_keys',
         win=platform != 'mac', win32=platform == 'win32',
         win64=platform == 'win64', winarm=platform == 'winarm',
-        mac=platform == 'mac', options=options, qt='6.11.1',
-        branch='v$QT', rustToolchain='1.90.0', modifiedEnv={},
+        mac=platform == 'mac', options=options, qt='6.11.2',
+        branch='v$QT', modifiedEnv={}, qtAngleCmake='/qt-angle.cmake',
+        computeFileHash=lambda path: 'content-hash',
         subprocess=types.SimpleNamespace(run=lambda *a, **k:
             types.SimpleNamespace(stdout='Python 3.12.10')),
     )
+    constant_names = {'rustToolchain', 'tlottieRevision',
+                      'walletEngineRevision', 'macBreakpadBuild'}
+    for node in TREE.body:
+        if isinstance(node, ast.Assign):
+            for target in node.targets:
+                if isinstance(target, ast.Name) and target.id in constant_names:
+                    namespace[target.id] = ast.literal_eval(node.value)
     names = {'filterByPlatform', 'removeDir', 'setVar', 'dependencyGroup',
              'keyPath', 'checkCacheKey', 'runStages'}
     for node in TREE.body:
@@ -62,6 +70,18 @@ class PrepareOptionsTests(unittest.TestCase):
                         self.assertNotIn('mkdir Debug', commands)
                     if name.startswith('qt_'):
                         self.assertIn('SET CONFIGURATIONS=-release\n', commands)
+
+    def test_default_libheif_prepares_both_configurations(self):
+        commands = dict(stage_commands('win64'))['libheif']
+        for configuration in ('Debug', 'Release'):
+            self.assertIn('cmake --build . --config ' + configuration, commands)
+            self.assertIn('cmake --install . --config ' + configuration, commands)
+
+    def test_qt_rebuild_removes_its_actual_install_directory(self):
+        for name, commands in stage_commands('win64', ('skip-debug',)):
+            if name.startswith('qt_'):
+                self.assertIn('rmdir /Q /S "%LIBS_DIR%\\Qt-6.11.2"', commands)
+                self.assertNotIn('rmdir /Q /S "%LIBS_DIR%\\Qt6.11.2"', commands)
 
     def test_debug_guard_does_not_enable_wrong_platform(self):
         commands = 'win:\ndebug:\n debug-build\nenddebug:\n release-build\nmac:\n mac-build\n'

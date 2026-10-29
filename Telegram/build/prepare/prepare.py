@@ -1441,8 +1441,10 @@ win:
         -DCMAKE_DISABLE_FIND_PACKAGE_JPEG=TRUE ^
         -DCMAKE_DISABLE_FIND_PACKAGE_PNG=TRUE ^
         -DWITH_EXAMPLES=OFF
+debug:
     cmake --build . --config Debug
     cmake --install . --config Debug
+enddebug:
 release:
     cmake --build . --config Release
     cmake --install . --config Release
@@ -1840,7 +1842,7 @@ win_releaseonly:
 win_asserts:
     SET ASSERTS=-force-asserts
 win:
-    """ + removeDir('"%LIBS_DIR%\\Qt' + qt + '"') + """
+    """ + removeDir('"%LIBS_DIR%\\Qt-' + qt + '"') + """
     SET MOZJPEG_DIR=%LIBS_DIR%\\mozjpeg
     SET OPENSSL_DIR=%LIBS_DIR%\\openssl3
     SET OPENSSL_LIBS_DIR=%OPENSSL_DIR%\\out

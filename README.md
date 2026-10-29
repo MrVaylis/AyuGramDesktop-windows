@@ -4,6 +4,14 @@
 
 [ English  |   [Русский](README-RU.md) ]
 
+## This Windows fork
+
+Windows x64 builds for this fork are produced by the [AyuGram Windows workflow](https://github.com/MrVaylis/AyuGramDesktop-windows/actions/workflows/windows.yml).
+Use this repository's [releases](https://github.com/MrVaylis/AyuGramDesktop-windows/releases) for the portable ZIP and installer.
+See the [Windows build guide](docs/building-win-x64.md), [release notes](docs/windows-release-notes.md) and [integration report](docs/INTEGRATION_7_3_4.md).
+
+This version adds copying messages with numeric custom emoji IDs and copying the ID of an individual emoji from its context menu.
+
 ## Features
 
 - Full ghost mode (flexible)
@@ -59,7 +67,7 @@ scoop install ayugram
 
 #### Self-built
 
-Follow [official guide](https://github.com/AyuGram/AyuGramDesktop/blob/dev/docs/building-win-x64.md) if you want to
+Follow this fork's [Windows build guide](docs/building-win-x64.md) if you want to
 build by yourself.
 
 ### macOS

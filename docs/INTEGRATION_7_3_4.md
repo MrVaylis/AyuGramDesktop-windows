@@ -162,8 +162,8 @@ The following checks completed in the local Linux workspace. The Python and nati
 
 1. Restore a GitHub connection with write/Actions/release access to the actual target repository and publish the reviewed source commit.
 2. Run the Windows workflow on that exact commit. Resolve any real MSVC, dependency-preparation, packaging, or startup failure before creating a published release.
-3. Perform an interactive Windows check of both emoji actions with multiple custom emoji, Unicode emoji, captions/albums, selections, and enlarged emoji. Confirm language switching and copy restrictions in the real UI.
-4. Exercise the integrated settings, avatar/music/history features, and Windows frame pacing on supported hardware. The narrow regression checks above do not establish performance or end-to-end account behavior.
-5. Publish only the artifacts tied to the successful workflow's exact source commit, manifest, checksums, and smoke report.
+3. Publish only the artifacts tied to the successful workflow's exact source commit, manifest, checksums, and smoke report. The prepared release request triggers this publication after the automated gates succeed.
+
+Interactive Windows validation is still outside the observed checks: both emoji actions with multiple custom emoji, Unicode emoji, captions/albums, selections and enlarged emoji; language switching and copy restrictions; integrated settings, avatars, music and history; and frame pacing on supported hardware. These checks require a running Windows client and appropriate test data. They are not represented as automated release gates or completed results.
 
 At this checkpoint there is no successful Actions URL, downloadable Windows release, Authenticode signature, or account-login result to cite. The source and workflow are ready for that next validation stage once repository access is available.

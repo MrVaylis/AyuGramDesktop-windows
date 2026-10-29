@@ -4,6 +4,14 @@
 
 [ [English](README.md)  | Русский ]
 
+## Этот Windows-форк
+
+Сборки Windows x64 для этого форка создаёт [единый workflow AyuGram Windows](https://github.com/MrVaylis/AyuGramDesktop-windows/actions/workflows/windows.yml).
+Portable ZIP и установщик публикуются в [релизах этого репозитория](https://github.com/MrVaylis/AyuGramDesktop-windows/releases).
+Доступны [инструкция по сборке Windows](docs/building-win-x64.md), [описание изменений](docs/windows-release-notes.md) и [отчёт об интеграции](docs/INTEGRATION_7_3_4.md).
+
+Добавлены пункты «Копировать с emoji ID» для текста сообщения и «Копировать emoji ID» для конкретного пользовательского эмодзи под указателем.
+
 ## Функции и Фишки
 
 - Полный режим призрака (настраиваемый)
@@ -58,7 +66,7 @@ scoop install ayugram
 
 #### Сборка вручную
 
-Следуйте [официальному руководству](https://github.com/AyuGram/AyuGramDesktop/blob/dev/docs/building-win-x64.md), если
+Следуйте [инструкции этого форка по сборке Windows](docs/building-win-x64.md), если
 вы хотите собрать AyuGram сами.
 
 ### macOS

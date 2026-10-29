@@ -127,6 +127,7 @@ https://github.com/telegramdesktop/tdesktop/blob/master/LEGAL
 #include "ayu/ayu_settings.h"
 #include "ayu/features/forward/ayu_forward.h"
 #include "ayu/ui/context_menu/context_menu.h"
+#include "ayu/utils/emoji_ids.h"
 
 
 namespace HistoryView {
@@ -1874,6 +1875,15 @@ void FillContextMenuItems(
 			list->copySelectedText();
 			list->clearSelected();
 		}, &st::menuIconCopy);
+		if (Ayu::FirstEmojiId(list->getSelectedText().rich)) {
+			result->addAction(tr::ayu_CopyWithEmojiId(tr::now), [=] {
+				if (!list->hasCopyRestrictionForSelected()) {
+					QGuiApplication::clipboard()->setText(
+						Ayu::TextWithEmojiIds(list->getSelectedText().rich));
+					list->clearSelected();
+				}
+			}, &st::menuIconCopy);
+		}
 	}
 	if (request.overSelection
 		&& view
@@ -1973,6 +1983,45 @@ void FillContextMenuItems(
 							list->hasCopyRestriction(item)));
 					}
 				}, &st::menuIconTranslate);
+			}
+		}
+	}
+
+	if (item && !list->hasCopyRestriction(item)) {
+		const auto owner = &item->history()->owner();
+		if (request.customEmojiId) {
+			const auto emojiId = request.customEmojiId;
+			result->addAction(tr::ayu_CopyEmojiId(tr::now), [=] {
+				if (const auto item = owner->message(itemId)) {
+					if (!list->showCopyRestriction(item)) {
+						QGuiApplication::clipboard()->setText(
+							QString::number(emojiId));
+					}
+				}
+			}, &st::menuIconCopy);
+		}
+		if (!request.overSelection && !hasSelection) {
+			const auto asGroup = (request.pointState != PointState::GroupPart);
+			const auto copyText = [=] {
+				if (const auto item = owner->message(itemId)) {
+					if (asGroup) {
+						if (const auto group = owner->groups().find(item)) {
+							return HistoryGroupText(group);
+						}
+					}
+					return HistoryItemText(item);
+				}
+				return TextForMimeData();
+			};
+			if (Ayu::FirstEmojiId(copyText().rich)) {
+				result->addAction(tr::ayu_CopyWithEmojiId(tr::now), [=] {
+					if (const auto item = owner->message(itemId)) {
+						if (!list->showCopyRestriction(item)) {
+							QGuiApplication::clipboard()->setText(
+								Ayu::TextWithEmojiIds(copyText().rich));
+						}
+					}
+				}, &st::menuIconCopy);
 			}
 		}
 	}

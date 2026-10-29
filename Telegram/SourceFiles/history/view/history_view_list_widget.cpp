@@ -110,7 +110,9 @@ https://github.com/telegramdesktop/tdesktop/blob/master/LEGAL
 // AyuGram includes
 #include "ayu/ayu_settings.h"
 #include "ayu/features/filters/filters_cache_controller.h"
+#include "ayu/utils/emoji_ids.h"
 #include "ayu/utils/telegram_helpers.h"
+#include <limits>
 
 
 namespace HistoryView {
@@ -4269,6 +4271,25 @@ void ListWidget::showContextMenu(QContextMenuEvent *e, bool showFromTouch) {
 	request.view = _overElement;
 	request.item = overItem;
 	request.pointState = _overState.pointState;
+	if (_overElement
+		&& (e->reason() == QContextMenuEvent::Mouse || showFromTouch)) {
+		auto stateRequest = StateRequest();
+		stateRequest.flags |= Ui::Text::StateRequest::Flag::LookupSymbol;
+		stateRequest.lookupCustomEmojiId = true;
+		const auto state = _overElement->textState(
+			_overState.point,
+			stateRequest);
+		request.customEmojiId = state.customEmojiId;
+		if (!request.customEmojiId
+			&& state.cursor == CursorState::Text
+			&& !state.selectionCursor.isRichPage()
+			&& state.symbol < std::numeric_limits<uint16>::max()) {
+			request.customEmojiId = Ayu::FirstEmojiId(
+				_overElement->selectedText(TextSelection(
+					state.symbol,
+					state.symbol + 1)).rich);
+		}
+	}
 	request.quote = (_overElement
 		&& _selectedTextItem == _overElement->data())
 		? _overElement->selectedReplyQuote(_selectedTextSelection)

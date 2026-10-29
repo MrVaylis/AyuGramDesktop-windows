@@ -36,6 +36,11 @@ public:
 		[[nodiscard]] virtual ClickHandlerPtr link() {
 			return nullptr;
 		}
+		[[nodiscard]] virtual DocumentId customEmojiIdAt(
+				QPoint point,
+				QSize size) const {
+			return 0;
+		}
 
 		[[nodiscard]] virtual DocumentData *document() {
 			return nullptr;

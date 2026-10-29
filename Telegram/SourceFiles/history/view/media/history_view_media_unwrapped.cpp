@@ -609,6 +609,12 @@ TextState UnwrappedMedia::textState(QPoint point, StateRequest request) const {
 		}
 	}
 
+	if (inner.contains(point)) {
+		result.customEmojiId = _content->customEmojiIdAt(
+			point - inner.topLeft(),
+			_contentSize);
+	}
+
 	// Link of content can be nullptr (e.g. sticker without stickerpack).
 	// So we have to process it to avoid overriding the previous result.
 	if (_content->link() && inner.contains(point)) {

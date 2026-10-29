@@ -142,6 +142,9 @@ set(ayugram_files
         ayu/ayu_settings.h
         ayu/ayu_lang.cpp
         ayu/ayu_lang.h
+        ayu/utils/emoji_id_replacements.h
+        ayu/utils/emoji_ids.cpp
+        ayu/utils/emoji_ids.h
         ayu/ayu_infra.cpp
         ayu/ayu_infra.h
         ayu/utils/ayu_mapper.cpp

@@ -76,6 +76,7 @@ https://github.com/telegramdesktop/tdesktop/blob/master/LEGAL
 #include "ayu/ayu_settings.h"
 #include "ayu/features/filters/filters_controller.h"
 #include "ayu/features/message_shot/message_shot.h"
+#include "ayu/utils/emoji_ids.h"
 #include "styles/style_ayu_icons.h"
 
 
@@ -4812,6 +4813,18 @@ bool Message::getStateText(
 		const auto offset = rich->article.selectionOffsetFromHit(
 			hit,
 			TextSelectType::Letters);
+		if (request.lookupCustomEmojiId && hit.direct && hit.state.uponSymbol) {
+			const auto from = MarkdownArticleSelectionPosition{
+				.segment = hit.segmentIndex,
+				.offset = hit.state.symbol,
+			};
+			const auto to = MarkdownArticleSelectionPosition{
+				.segment = hit.segmentIndex,
+				.offset = int(hit.state.symbol) + 1,
+			};
+			outResult->customEmojiId = Ayu::FirstEmojiId(
+				rich->article.textForSelection({ from, to }, nullptr).rich);
+		}
 		SetRichPageSelectionCursor(
 			outResult,
 			hit.segmentIndex,

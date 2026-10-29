@@ -49,6 +49,7 @@ public:
 		const PaintContext &context,
 		const QRect &r) override;
 	ClickHandlerPtr link() override;
+	DocumentId customEmojiIdAt(QPoint point, QSize size) const override;
 
 	bool alwaysShowOutTimestamp() override;
 	bool hasTextForCopy() const override {

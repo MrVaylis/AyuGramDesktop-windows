@@ -52,6 +52,7 @@ struct TextState {
 	TextState(std::nullptr_t, ClickHandlerPtr link);
 
 	FullMsgId itemId;
+	DocumentId customEmojiId = 0;
 	CursorState cursor = CursorState::None;
 	ClickHandlerPtr link;
 	uint16 symbol = 0;
@@ -79,6 +80,7 @@ struct StateRequest {
 		return result;
 	}
 	bool onlyMessageText = false;
+	bool lookupCustomEmojiId = false;
 };
 
 enum class InfoDisplayType : char {

@@ -51,6 +51,7 @@ struct ContextMenuRequest {
 	SelectedItems selectedItems;
 	TextForMimeData selectedText;
 	SelectedQuote quote;
+	DocumentId customEmojiId = 0;
 	bool overSelection = false;
 	PointState pointState = PointState();
 };

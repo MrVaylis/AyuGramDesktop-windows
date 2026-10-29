@@ -163,6 +163,37 @@ ClickHandlerPtr CustomEmoji::link() {
 	return _interactionLink;
 }
 
+DocumentId CustomEmoji::customEmojiIdAt(QPoint point, QSize size) const {
+	if (!QRect(QPoint(), size).contains(point) || _singleSize <= 0) {
+		return 0;
+	}
+	const auto perRow = std::max(size.width() / _singleSize, 1);
+	const auto column = point.x() / _singleSize;
+	auto row = point.y() / _singleSize;
+	for (const auto &line : _lines) {
+		const auto count = int(line.size());
+		const auto rows = std::max((count + perRow - 1) / perRow, 1);
+		if (row >= rows) {
+			row -= rows;
+			continue;
+		}
+		const auto index = row * perRow + column;
+		if (column >= perRow || index >= count) {
+			return 0;
+		}
+		const auto &entry = line[index];
+		if (const auto id = std::get_if<DocumentId>(&entry)) {
+			return *id;
+		} else if (const auto sticker = std::get_if<StickerPtr>(&entry)) {
+			const auto document = (*sticker)->document();
+			return document ? document->id : 0;
+		} else if (const auto custom = std::get_if<CustomPtr>(&entry)) {
+			return Data::ParseCustomEmojiData((*custom)->entityData());
+		}
+	}
+	return 0;
+}
+
 void CustomEmoji::interactionLinkClicked() {
 	const auto &entry = _lines.front().front();
 	if (const auto sticker = std::get_if<StickerPtr>(&entry)) {

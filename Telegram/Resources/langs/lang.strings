@@ -9736,6 +9736,8 @@ https://github.com/telegramdesktop/tdesktop/blob/master/LEGAL
 "ayu_UploadBoost" = "Upload Boost";
 "ayu_ShowOnlyAddedEmojisAndStickers" = "Show Only Added Emojis & Stickers";
 "ayu_ContextCopyID" = "Copy ID";
+"ayu_CopyWithEmojiId" = "Copy with emoji IDs";
+"ayu_CopyEmojiId" = "Copy emoji ID";
 "ayu_IDCopiedToast" = "ID copied to clipboard.";
 "ayu_ContextHideMessage" = "Hide";
 "ayu_SearchByIDResults" = "Found by ID";

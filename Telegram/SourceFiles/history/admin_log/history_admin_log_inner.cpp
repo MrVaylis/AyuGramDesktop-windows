@@ -82,6 +82,11 @@ https://github.com/telegramdesktop/tdesktop/blob/master/LEGAL
 #include <QtGui/QGuiApplication>
 #include <QtGui/QClipboard>
 
+// AyuGram includes
+#include "ayu/utils/emoji_ids.h"
+
+#include <limits>
+
 namespace AdminLog {
 namespace {
 
@@ -2336,6 +2341,46 @@ void InnerWidget::showContextMenu(QContextMenuEvent *e, bool showFromTouch) {
 				[text = link->copyToClipboardText()] {
 					QGuiApplication::clipboard()->setText(text);
 				},
+				&st::menuIconCopy);
+		}
+	}
+
+	const auto addCopyWithEmojiIds = [&](const TextWithEntities &text) {
+		if (Ayu::FirstEmojiId(text)) {
+			_menu->addAction(
+				tr::ayu_CopyWithEmojiId(tr::now),
+				[text = Ayu::TextWithEmojiIds(text)] {
+					QGuiApplication::clipboard()->setText(text);
+				},
+				&st::menuIconCopy);
+		}
+	};
+	if (isUponSelected > 0) {
+		addCopyWithEmojiIds(getSelectedText().rich);
+	} else if (view && !hasSelected && !fromId) {
+		addCopyWithEmojiIds(HistoryItemText(view->data()).rich);
+	}
+
+	if (view && (e->reason() == QContextMenuEvent::Mouse || showFromTouch)) {
+		auto request = StateRequest();
+		request.flags |= Ui::Text::StateRequest::Flag::LookupSymbol;
+		request.lookupCustomEmojiId = true;
+		const auto state = view->textState(
+			mapPointToItem(mapFromGlobal(e->globalPos()), view),
+			request);
+		auto emojiId = state.customEmojiId;
+		if (!emojiId
+			&& state.cursor == CursorState::Text
+			&& !state.selectionCursor.isRichPage()
+			&& state.symbol < std::numeric_limits<uint16>::max()) {
+			emojiId = Ayu::FirstEmojiId(view->selectedText(TextSelection(
+				state.symbol,
+				state.symbol + 1)).rich);
+		}
+		if (emojiId) {
+			_menu->addAction(
+				tr::ayu_CopyEmojiId(tr::now),
+				[=] { QGuiApplication::clipboard()->setText(QString::number(emojiId)); },
 				&st::menuIconCopy);
 		}
 	}

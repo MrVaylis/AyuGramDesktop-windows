@@ -26,6 +26,8 @@ class SyntaxHighlighter {
 public:
     TokenList tokenize(std::string_view text, const Grammar *grammar, size_t depth = 0);
     void matchGrammar(std::string_view text, TokenList &tokens, const Grammar *grammar, TokenListPtr start, size_t pos, RematchOptions *rematch, size_t depth);
+private:
+    int m_depth = 0;
 };
 #include "grammar_under_test.h"
 std::string flatten(const TokenList &tokens, int depth = 0) {

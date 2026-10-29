@@ -4,11 +4,12 @@
 
 The single `.github/workflows/windows.yml` workflow builds Windows x64 with
 static Qt 6, MSVC 14.44 and Windows SDK 10.0.26100.0 on `windows-2022`.
-It runs the emoji ID, preparation and release validation tests before preparing
+It runs all build-helper Python tests and the emoji ID, duplicate-group,
+registration-estimator and native Prisma regression tests before preparing
 Release-only dependencies with `skip-debug`.
 Dependency caches include the preparation scripts and exact compiler, SDK and
 Python versions in their key. Desktop object files are rebuilt from the checked
-out source, including the pinned `lib_ui` patch.
+out source, including the pinned UI, code generator and Prisma patches.
 
 Every push to `dev` builds a downloadable workflow artifact. To also publish
 that exact build, include `[release:v7.3.4-ayu.1]` in the final commit message,
@@ -44,84 +45,101 @@ desktop acceptance check; the automated startup check does not claim them.
 
 ## Prepare folder
 
-The build is done in **Visual Studio 2026** with **10.0.26100.0** SDK version.
+The build uses **Visual Studio 2022 17.14** or **Visual Studio 2026** with
+**MSVC 14.44** and **Windows SDK 10.0.26100.0**. CI uses Visual Studio 2022.
+The source pins **Qt 6.11.2**; preparation builds the required static libraries.
 
-Make sure you have these components installed with Visual Studio:
+Install these Visual Studio components:
 
-- MSVC v143 - VS 2022 C++ x64/x86 build tools (v14.44-17.14)
-- C++ MFC v14.44 (x86 & x64)
-- C++ ATL v14.44 (x86 & x64)
-- Windows 11 SDK (10.0.26100.0)
+- MSVC v143 C++ x64/x86 build tools, v14.44-17.14
+- C++ MFC v14.44 for x86 and x64
+- C++ ATL v14.44 for x86 and x64
+- Windows 11 SDK 10.0.26100.0
 
-Choose an empty folder for the future build, for example **D:\\TBuild**. It will be named ***BuildPath*** in the rest of this document. Create two folders there, ***BuildPath*\\ThirdParty** and ***BuildPath*\\Libraries**.
+Choose an empty build folder, for example `D:\TBuild`. The examples below refer
+to it as `BuildPath`. The repository, `Libraries` and `ThirdParty` must share
+that parent folder. Windows x64 dependencies live in `Libraries\win64`.
 
 ## Install third party software
 
-* Download **Python 3.10** installer from [https://www.python.org/downloads/](https://www.python.org/downloads/) and install it with adding to PATH.
-* Download **Git** installer from [https://git-scm.com/download/win](https://git-scm.com/download/win) and install it.
+- Install **Python 3.12** or newer from [python.org](https://www.python.org/downloads/) and add it to PATH.
+- Install **Git** from [git-scm.com](https://git-scm.com/download/win).
+- Install **CMake 3.31** and **Ninja 1.13** or newer and add both to PATH.
 
 ## Initialize terminal
 
-Before preparing libraries and running build commands, initialize the Visual Studio environment for your target architecture.
-The default modern toolset from Visual Studio 2026 (`v145`) does not support Windows 7, so for AyuGram Desktop you must use `-vcvars_ver=14.44` (`v144.4`, based on `v143` with Windows 7 support).
+Use an x64 Native Tools terminal for preparation and configuration. With
+Visual Studio 2026, select the v14.44 toolset explicitly; its default v145
+compiler does not preserve the client baseline used by these builds.
 
-For Visual Studio installation:
+For Visual Studio 2022 Community:
 
-    %comspec% /k "C:\Program Files\Microsoft Visual Studio\18\Community\VC\Auxiliary\Build\vcvars64.bat" -vcvars_ver=14.44
+```batch
+%comspec% /k "C:\Program Files\Microsoft Visual Studio\2022\Community\VC\Auxiliary\Build\vcvars64.bat" -vcvars_ver=14.44 10.0.26100.0
+```
 
-For Visual Studio Build Tools installation:
+For Visual Studio 2026 Build Tools:
 
-    %comspec% /k "C:\Program Files (x86)\Microsoft Visual Studio\18\BuildTools\VC\Auxiliary\Build\vcvars64.bat" -vcvars_ver=14.44
+```batch
+%comspec% /k "C:\Program Files (x86)\Microsoft Visual Studio\18\BuildTools\VC\Auxiliary\Build\vcvars64.bat" -vcvars_ver=14.44 10.0.26100.0
+```
 
-Run both `Clone source code and prepare libraries` and `Build the project` sections in the terminal initialized with one of the commands above.
+Adjust the installation path for Enterprise or another installed edition.
 
 ## Clone source code and prepare libraries
 
-In the initialized terminal, go to ***BuildPath*** and run
+From `BuildPath`, run each command and stop if it reports an error:
 
-    git clone --recursive https://github.com/AyuGram/AyuGramDesktop.git tdesktop
-    tdesktop\Telegram\build\prepare\win.bat
+```batch
+git clone --branch dev --recursive https://github.com/MrVaylis/AyuGramDesktop-windows.git tdesktop
+cd tdesktop
+python Telegram\build\apply_ayu_patches.py
+python Telegram\build\apply_ayu_patches.py --check
+Telegram\build\prepare\win.bat silent qt6 skip-debug
+```
+
+The patch helper checks exact submodule revisions, applies the AyuGram UI and
+language-generator changes, and limits Prisma recursion. Run it again after
+updating submodules; repeated application is safe. Preparation creates the
+`Libraries` and `ThirdParty` sibling directories automatically.
 
 ## Build the project
 
-Go to ***BuildPath*\\tdesktop\\Telegram** and run
+From `BuildPath\tdesktop\Telegram`, run:
 
-    configure.bat x64 -D TDESKTOP_API_ID=2040 -D TDESKTOP_API_HASH=b18441a1ff607e10a989891a5462e627
+```batch
+configure.bat -G "Ninja Multi-Config" qt6 ^
+  -D TDESKTOP_API_ID=2040 ^
+  -D TDESKTOP_API_HASH=b18441a1ff607e10a989891a5462e627 ^
+  -D CMAKE_CONFIGURATION_TYPES=Release ^
+  -D DESKTOP_APP_DISABLE_AUTOUPDATE=ON ^
+  -D DESKTOP_APP_DISABLE_CRASH_REPORTS=ON ^
+  -D DESKTOP_APP_ENABLE_LTO=OFF
+cmake --build ..\out --config Release --target Telegram --parallel 2
+```
 
-* Open ***BuildPath*\\tdesktop\\out\\Telegram.slnx** in Visual Studio 2026
-* Select Telegram project and press Build > Build Telegram (Debug and Release configurations)
-* The result AyuGram.exe will be located in **D:\TBuild\tdesktop\out\Debug** (and **Release**)
+The result is `BuildPath\tdesktop\out\Release\AyuGram.exe`. Keep its `modules`
+directory when distributing the executable. The Ninja generator inherits the
+x64 compiler from the Native Tools terminal; do not add the `x64` positional
+argument used by the Visual Studio generator.
+
+For a Debug build, prepare dependencies without `skip-debug` and configure a
+separate checkout or build directory for Debug. The release-only cache omits
+Debug libraries.
 
 ## Troubleshooting
 
-### Error building libvpx
+### Missing libraries or the wrong architecture
 
-Downgrade NASM in msys64 to 3.01.
+Use the same x64 Native Tools terminal for preparation and configuration. Check
+that the repository has `Libraries` and `ThirdParty` siblings and that
+`Libraries\win64\Qt-6.11.2` exists. A source checkout alone does not provide the
+compiled dependencies.
 
-### PDB API call failed
+### Failed dependency preparation
 
-From the `tdesktop` folder, run the following command in PowerShell:
-
-```powershell
-@'
-diff --git a/options_win.cmake b/options_win.cmake
-index dd86342..857d5b7 100644
---- a/options_win.cmake
-+++ b/options_win.cmake
-@@ -34,2 +34,3 @@ if (MSVC)
-         /MP     # Enable multi process build.
-+        /FS
-         /EHsc   # Catch C++ exceptions only, extern C functions never throw a C++ exception.
-diff --git a/variables.cmake b/variables.cmake
-index a1e77b7..9f816cb 100644
---- a/variables.cmake
-+++ b/variables.cmake
-@@ -28,4 +28,4 @@ set(CMAKE_CXX_SCAN_FOR_MODULES OFF CACHE BOOL "")
- set(CMAKE_MSVC_DEBUG_INFORMATION_FORMAT
--    "$<$<CONFIG:Debug>:ProgramDatabase>$<$<NOT:$<CONFIG:Debug>>:Embedded>"
--    CACHE STRING "")
-+    "$<$<CONFIG:Debug,RelWithDebInfo>:ProgramDatabase>$<$<CONFIG:Release,MinSizeRel>:Embedded>"
-+    CACHE STRING "" FORCE)
- set(CMAKE_MSVC_RUNTIME_LIBRARY "MultiThreaded$<$<CONFIG:Debug>:Debug>" CACHE STRING "")
-'@ | git -C cmake apply -
-```
+Keep the full command output and rerun `win.bat silent qt6 skip-debug` after
+fixing the reported error. Completed stages have content-checked cache markers;
+incomplete stages are rebuilt. Use the dependency versions pinned by this
+checkout. CI preserves diagnostic artifacts when a later client build or
+startup test fails.

@@ -1,5 +1,39 @@
 # Build instructions for Windows 64-bit
 
+## Windows CI and releases
+
+The single `.github/workflows/windows.yml` workflow builds Windows x64 with
+static Qt 6, MSVC 14.44 and Windows SDK 10.0.26100.0 on `windows-2022`.
+It runs the emoji ID and release validation tests before preparing dependencies.
+Dependency caches include the preparation scripts and exact compiler, SDK and
+Python versions in their key. Desktop object files are rebuilt from the checked
+out source, including the pinned `lib_ui` patch.
+
+Every push to `dev` builds a downloadable workflow artifact. To also publish
+that exact build, include `[release:v7.3.4-ayu.1]` in the final commit message,
+replacing the version with `AppVersionStrSmall` and incrementing the AyuGram
+revision for subsequent releases. A bare `[release]` uses a unique tag based on
+the source version and workflow run number. A `v*` tag, a branch named
+`release/v<version>-ayu.<revision>`, or a manual run with `publish_release`
+enabled can also publish. Pull requests never publish releases.
+
+Release publication requires successful compilation, a visible application
+window, clean application shutdown, and silent installer and uninstaller tests.
+The executable's Windows version resource must identify AyuGram and match the
+source version. The workflow publishes `AyuGram.exe`, a portable ZIP, a per-user
+installer, SHA-256 checksums, and a manifest identifying the source commit,
+submodules, applied UI patch and smoke-test result. The portable ZIP includes
+the existing `TelegramForcePortable` directory required by the client.
+
+The publish job verifies checksums and source identity, uploads assets to a
+draft, and publishes only after every upload succeeds. It refuses to replace a
+published release or a tag referring to another commit. Beta source versions
+are published as prereleases. The workflow uses the API identity already
+documented by AyuGram; no private signing key is required. These builds are
+unsigned and disable automatic updates so the upstream updater cannot replace
+this fork. Account login and emoji interactions require a separate signed-in
+desktop acceptance check; the automated startup check does not claim them.
+
 - [Prepare folder](#prepare-folder)
 - [Install third party software](#install-third-party-software)
 - [Initialize terminal](#initialize-terminal)

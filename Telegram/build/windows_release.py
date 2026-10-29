@@ -103,6 +103,10 @@ def package(root, output, installer, smoke_report):
         path.relative_to(root).as_posix(): digest(path)
         for path in sorted((root / "patches").glob("*.patch"))
     }
+    for name in ("Telegram/build/apply_ayu_patches.py", "Telegram/build/patch_prisma.py"):
+        path = root / name
+        if path.is_file():
+            patches[name] = digest(path)
     manifest = {
         "application": "AyuGram Desktop",
         "version": metadata["version"],

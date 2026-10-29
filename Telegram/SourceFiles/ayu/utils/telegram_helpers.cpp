@@ -5,7 +5,6 @@
 //
 // Copyright @Radolyn, 2026
 #include "ayu/utils/telegram_helpers.h"
-#include "ayu/utils/account_info.h"
 
 #include "apiwrap.h"
 #include "lang_auto.h"
@@ -724,15 +723,6 @@ bool isMessageSavable(const not_null<HistoryItem*> item) {
 	if (const auto possiblyBot = item->history()->peer->asUser()) {
 		return !possiblyBot->isBot() || (settings.saveForBots() && possiblyBot->isBot());
 	}
-
-	if (settings.excludeBotsInGroups()) {
-		const auto from = item->from();
-		const auto user = from ? from->asUser() : nullptr;
-		if (user && user->isBot()) {
-			return false;
-		}
-	}
-
 	return true;
 }
 
@@ -1467,213 +1457,25 @@ void getUserRegistrationDateInner(
 	}).handleAllErrors().send();
 }
 
-struct RegDateAnchor {
-	uint64 id;
-	int year;
-	int month;
-	int day;
-};
+void getUserRegistrationDate(not_null<UserData*> user, Fn<void(TextWithEntities)> callback) {
+	const auto session = &user->session();
+	const auto selfId = getDialogIdFromPeer(session->user());
+	const auto isSupporter = isSupporterPeer(selfId) || isExteraPeer(selfId);
 
-static const RegDateAnchor kRegDateAnchors[] = {
-	{ 0ULL, 2013, 8, 14 },
-	{ 100000ULL, 2013, 10, 1 },
-	{ 1000000ULL, 2013, 12, 20 },
-	{ 10000000ULL, 2014, 11, 15 },
-	{ 50000000ULL, 2015, 7, 20 },
-	{ 100000000ULL, 2015, 12, 25 },
-	{ 200000000ULL, 2016, 9, 1 },
-	{ 300000000ULL, 2017, 4, 1 },
-	{ 400000000ULL, 2017, 11, 1 },
-	{ 500000000ULL, 2018, 2, 15 },
-	{ 600000000ULL, 2018, 7, 15 },
-	{ 700000000ULL, 2018, 12, 15 },
-	{ 800000000ULL, 2019, 5, 15 },
-	{ 900000000ULL, 2019, 8, 15 },
-	{ 1000000000ULL, 2019, 12, 31 },
-	{ 1200000000ULL, 2020, 6, 15 },
-	{ 1400000000ULL, 2020, 11, 15 },
-	{ 1600000000ULL, 2021, 3, 15 },
-	{ 1800000000ULL, 2021, 5, 15 },
-	{ 2000000000ULL, 2021, 9, 15 },
-	{ 5000000000ULL, 2022, 2, 1 },
-	{ 5341014808ULL, 2022, 5, 16 },
-	{ 5500000000ULL, 2022, 6, 15 },
-	{ 6000000000ULL, 2023, 1, 15 },
-	{ 6500000000ULL, 2023, 6, 15 },
-	{ 7000000000ULL, 2023, 12, 15 },
-	{ 7500000000ULL, 2024, 6, 15 },
-	{ 8000000000ULL, 2025, 1, 15 },
-	{ 8500000000ULL, 2025, 8, 15 },
-	{ 9000000000ULL, 2026, 2, 15 },
-};
+	const auto botId = isSupporter ? regDateBotId : regDateBotFallbackId;
+	const auto botUsername = isSupporter ? regDateBotUsername : regDateBotFallbackUsername;
 
-static QDate estimateUserRegistrationDate(uint64 id) {
-	const auto count = sizeof(kRegDateAnchors) / sizeof(kRegDateAnchors[0]);
-	if (id <= kRegDateAnchors[0].id) {
-		return QDate(kRegDateAnchors[0].year, kRegDateAnchors[0].month, kRegDateAnchors[0].day);
-	}
-	if (id >= kRegDateAnchors[count - 1].id) {
-		return QDate(kRegDateAnchors[count - 1].year, kRegDateAnchors[count - 1].month, kRegDateAnchors[count - 1].day);
-	}
-	for (size_t i = 0; i < count - 1; ++i) {
-		if (id >= kRegDateAnchors[i].id && id <= kRegDateAnchors[i + 1].id) {
-			const auto d1 = QDate(kRegDateAnchors[i].year, kRegDateAnchors[i].month, kRegDateAnchors[i].day);
-			const auto d2 = QDate(kRegDateAnchors[i + 1].year, kRegDateAnchors[i + 1].month, kRegDateAnchors[i + 1].day);
-			const auto daysBetween = d1.daysTo(d2);
-			const double ratio = double(id - kRegDateAnchors[i].id) / double(kRegDateAnchors[i + 1].id - kRegDateAnchors[i].id);
-			return d1.addDays(qRound(daysBetween * ratio));
-		}
-	}
-	return QDate();
-}
-
-static TextWithEntities appendTextWithEntities(TextWithEntities first, const TextWithEntities &second) {
-	if (second.empty()) {
-		return first;
-	}
-	if (first.empty()) {
-		return second;
-	}
-	const auto firstLen = first.text.length();
-	first.text += "\n" + second.text;
-	for (const auto &entity : second.entities) {
-		first.entities.push_back(EntityInText(
-			entity.type(),
-			entity.offset() + firstLen + 1,
-			entity.length(),
-			entity.data()));
-	}
-	return first;
-}
-
-static TextWithEntities formatJoinDateText(not_null<UserData*> user, const QString &chatName, const QString &joinDateFormatted) {
-	const auto langId = Lang::LanguageIdOrDefault(Lang::Id());
-	const auto isRu = langId.startsWith(u"ru"_q) || langId.startsWith(u"uk"_q) || langId.startsWith(u"be"_q);
-	TextWithEntities result;
-	if (user->isSelf()) {
-		if (isRu) {
-			result.text = u"Вы вступили в "_q + chatName + u" "_q + joinDateFormatted + u"."_q;
-			result.entities.push_back(EntityInText(EntityType::Bold, 13, chatName.length()));
-		} else {
-			result.text = u"You joined "_q + chatName + u" on "_q + joinDateFormatted + u"."_q;
-			result.entities.push_back(EntityInText(EntityType::Bold, 11, chatName.length()));
-		}
+	if (session->data().userLoaded(botId)) {
+		getUserRegistrationDateInner(user, botId, callback);
 	} else {
-		const auto userName = user->name();
-		if (isRu) {
-			result.text = userName + u" вступил(а) в "_q + chatName + u" "_q + joinDateFormatted + u"."_q;
-			result.entities.push_back(EntityInText(EntityType::Bold, 0, userName.length()));
-			const auto chatOffset = userName.length() + QString(u" вступил(а) в "_q).length();
-			result.entities.push_back(EntityInText(EntityType::Bold, chatOffset, chatName.length()));
-		} else {
-			result.text = userName + u" joined "_q + chatName + u" on "_q + joinDateFormatted + u"."_q;
-			result.entities.push_back(EntityInText(EntityType::Bold, 0, userName.length()));
-			const auto chatOffset = userName.length() + QString(u" joined "_q).length();
-			result.entities.push_back(EntityInText(EntityType::Bold, chatOffset, chatName.length()));
-		}
-	}
-	return result;
-}
-
-void getUserRegistrationDate(not_null<UserData*> user, Fn<void(TextWithEntities)> callback, PeerData *contextPeer) {
-	Ayu::AccountInfo::Observe(user);
-	const auto confirmed = Ayu::AccountInfo::KnownRegistration(user);
-	const auto localEstimate = confirmed.isValid()
-		? QDate() : Ayu::AccountInfo::EstimateRegistration(user);
-	const auto date = confirmed.isValid()
-		? confirmed
-		: localEstimate.isValid()
-		? localEstimate
-		: estimateUserRegistrationDate(getBareID(user));
-	auto formattedDate = langMonthOfYearFull(date.month(), date.year());
-	if (formattedDate.size() >= 3
-		&& formattedDate.endsWith(u"г."_q)
-		&& formattedDate.at(formattedDate.size() - 3).isSpace()) {
-		formattedDate.chop(2);
-		formattedDate += u"года"_q;
-	}
-
-	TextWithEntities regResult;
-	if (confirmed.isValid() && user->isSelf()) {
-		regResult = tr::ayu_CreationDateSelfConfirmed(
-			tr::now, lt_item, TextWithEntities{ formattedDate }, tr::rich);
-	} else if (confirmed.isValid()) {
-		regResult = tr::ayu_CreationDateUserConfirmed(
-			tr::now, lt_item1, TextWithEntities{ user->name() },
-			lt_item2, TextWithEntities{ formattedDate }, tr::rich);
-	} else if (user->isSelf()) {
-		regResult = tr::ayu_CreationDateSelfApproximately(
-			tr::now, lt_item, TextWithEntities{ formattedDate }, tr::rich);
-	} else {
-		regResult = tr::ayu_CreationDateUserApproximately(
-			tr::now, lt_item1, TextWithEntities{ user->name() },
-			lt_item2, TextWithEntities{ formattedDate }, tr::rich);
-	}
-
-	if (formattedDate.endsWith(QChar('.'))
-		&& regResult.text.endsWith(u".."_q)) {
-		regResult.text.chop(1);
-		for (auto &entity : regResult.entities) {
-			entity.updateTextEnd(regResult.text.size());
-		}
-	}
-
-	if (contextPeer && contextPeer != user) {
-		if (const auto channel = contextPeer->asChannel()) {
-			if (user->isSelf()) {
-				if (channel->inviteDate) {
-					const auto joinDateFormatted = langDayOfMonthFull(base::unixtime::parse(channel->inviteDate).date());
-					const auto joinText = formatJoinDateText(user, channel->name(), joinDateFormatted);
-					regResult = appendTextWithEntities(regResult, joinText);
-				}
-				if (callback) {
-					callback(regResult);
-				}
-				return;
-			} else {
-				user->session().api().request(MTPchannels_GetParticipant(
-					channel->inputChannel(),
-					user->input()
-				)).done([=](const MTPchannels_ChannelParticipant &result) {
-					auto finalResult = regResult;
-					result.match([&](const MTPDchannels_channelParticipant &data) {
-						channel->owner().processUsers(data.vusers());
-
-						TimeId joinDate = 0;
-						data.vparticipant().match([&](const MTPDchannelParticipant &p) {
-							joinDate = p.vdate().v;
-						}, [&](const MTPDchannelParticipantSelf &p) {
-							joinDate = p.vdate().v;
-						}, [&](const MTPDchannelParticipantAdmin &p) {
-							joinDate = p.vdate().v;
-						}, [&](const MTPDchannelParticipantBanned &p) {
-							joinDate = p.vdate().v;
-						}, [&](const MTPDchannelParticipantCreator &) {
-							joinDate = channel->date;
-						}, [&](const auto &) {
-						});
-
-						if (joinDate > 0) {
-							const auto joinDateFormatted = langDayOfMonthFull(base::unixtime::parse(joinDate).date());
-							const auto joinText = formatJoinDateText(user, channel->name(), joinDateFormatted);
-							finalResult = appendTextWithEntities(finalResult, joinText);
-						}
-					});
-					if (callback) {
-						callback(finalResult);
-					}
-				}).fail([=] {
-					if (callback) {
-						callback(regResult);
-					}
-				}).send();
-				return;
-			}
-		}
-	}
-
-	if (callback) {
-		callback(regResult);
+		resolvePeer(
+			QString::number(botId),
+			botUsername,
+			session,
+			[=](const QString &title, PeerData *data)
+			{
+				getUserRegistrationDateInner(user, botId, callback);
+			});
 	}
 }
 
@@ -1727,9 +1529,9 @@ void getChatCreateDate(not_null<ChatData*> chat, Fn<void(TextWithEntities)> call
 	}
 }
 
-void getRegistrationDate(not_null<PeerData*> peer, Fn<void(TextWithEntities)> callback, PeerData *contextPeer) {
+void getRegistrationDate(not_null<PeerData*> peer, Fn<void(TextWithEntities)> callback) {
 	if (const auto user = peer->asUser()) {
-		getUserRegistrationDate(user, callback, contextPeer);
+		getUserRegistrationDate(user, callback);
 	} else if (const auto channel = peer->asChannel()) {
 		getChannelJoinOrCreateDate(channel, callback);
 	} else if (const auto chat = peer->asChat()) {

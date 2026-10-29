@@ -7,7 +7,6 @@ https://github.com/telegramdesktop/tdesktop/blob/master/LEGAL
 */
 #include "history/view/history_view_bottom_info.h"
 
-#include "ayu/features/filters/filters_controller.h"
 #include "ui/chat/message_bubble.h"
 #include "ui/chat/chat_style.h"
 #include "ui/effects/reaction_fly_animation.h"
@@ -42,6 +41,7 @@ https://github.com/telegramdesktop/tdesktop/blob/master/LEGAL
 #include "ayu/features/message_shot/message_shot.h"
 #include "ayu/utils/telegram_helpers.h"
 #include "styles/style_ayu_icons.h"
+
 
 namespace HistoryView {
 namespace {
@@ -500,7 +500,6 @@ void BottomInfo::layoutDateText() {
 		const auto deleted = (_data.flags & Data::Flag::AyuDeleted)
 			? (settings.deletedMark() + ' ')
 			: QString();
-
 		const auto edited = editedPrimary
 			? QString()
 			: updated
@@ -516,10 +515,9 @@ void BottomInfo::layoutDateText() {
 		const auto prefix = !author.isEmpty() ? u", "_q : QString();
 		const auto date = editedPrimary
 			? FormatEditedDate(_data.date, _data.editedDate)
-			: edited + ((_data.flags & Data::Flag::ForwardedDate)
+			: edited + ((_data.flags & (Data::Flag::ForwardedDate | Data::Flag::FullDate))
 			? Ui::FormatDateTimeSavedFrom(_data.date)
-			: formatMessageTime(_data.date.time()))
-			+ (_data.repeatCount > 1 ? (" (x" + QString::number(_data.repeatCount) + ")") : QString());
+			: formatMessageTime(_data.date.time()));
 		const auto afterAuthor = prefix + date;
 		const auto afterAuthorWidth = st::msgDateFont->width(afterAuthor);
 		const auto authorWidth = st::msgDateFont->width(author);
@@ -606,10 +604,9 @@ void BottomInfo::layoutDateText() {
 
 		const auto dateStr = editedPrimary
 			? FormatEditedDate(_data.date, _data.editedDate)
-			: (_data.flags & Data::Flag::ForwardedDate)
+			: (_data.flags & (Data::Flag::ForwardedDate | Data::Flag::FullDate))
 			? Ui::FormatDateTimeSavedFrom(_data.date)
-			: formatMessageTime(_data.date.time())
-			+ (_data.repeatCount > 1 ? (" (x" + QString::number(_data.repeatCount) + ")") : QString());
+			: formatMessageTime(_data.date.time());
 
 		const auto date = TextWithEntities{}
 			.append(edited)
@@ -774,14 +771,13 @@ QRect BottomInfo::effectIconGeometry() const {
 		st::effectInfoImage);
 }
 
-struct BottomInfo::Data BottomInfoDataFromMessage(not_null<Message*> message) {
+BottomInfo::Data BottomInfoDataFromMessage(not_null<Message*> message) {
 	using Flag = BottomInfo::Data::Flag;
 	const auto item = message->data();
 
 	auto result = BottomInfo::Data();
 	result.date = message->dateTime();
 	result.effectId = item->effectId();
-	result.repeatCount = FiltersController::countDuplicateGroupSize(item);
 	if (message->hasOutLayout()) {
 		result.flags |= Flag::OutLayout;
 	}
@@ -796,6 +792,8 @@ struct BottomInfo::Data BottomInfoDataFromMessage(not_null<Message*> message) {
 	}
 	if (message->context() == Context::ShortcutMessages) {
 		result.flags |= Flag::Shortcut;
+	} else if (message->context() == Context::MediaEditor) {
+		result.flags |= Flag::FullDate;
 	}
 	if (!item->isPost()
 		|| !item->hasRealFromId()

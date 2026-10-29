@@ -6,7 +6,6 @@ For license and copyright information please follow this link:
 https://github.com/telegramdesktop/tdesktop/blob/master/LEGAL
 */
 #include "data/data_peer.h"
-#include "ayu/utils/account_info.h"
 
 #include "api/api_sensitive_content.h"
 #include "data/data_user.h"
@@ -205,20 +204,6 @@ PeerData *PeerFromInputMTP(
 		return (PeerData*)owner->session().user();
 	}, [&](const auto &data) {
 		return (PeerData*)nullptr;
-	});
-}
-
-UserData *UserFromInputMTP(
-		not_null<Session*> owner,
-		const MTPInputUser &input) {
-	return input.match([&](const MTPDinputUser &data) {
-		const auto user = owner->user(data.vuser_id().v);
-		user->setAccessHash(data.vaccess_hash().v);
-		return user.get();
-	}, [&](const MTPDinputUserSelf &data) {
-		return owner->session().user().get();
-	}, [](const auto &data) {
-		return (UserData*)nullptr;
 	});
 }
 
@@ -770,7 +755,24 @@ bool PeerData::canEditMessagesIndefinitely() const {
 }
 
 bool PeerData::canExportChatHistory() const {
-	return !isRepliesChat() && !isVerifyCodes();
+	if (isRepliesChat() || isVerifyCodes() || !allowsForwarding()) {
+		return false;
+	} else if (const auto channel = asChannel()) {
+		if (!channel->amIn() && channel->invitePeekExpires()) {
+			return false;
+		}
+	}
+	for (const auto &block : _owner->history(id)->blocks) {
+		for (const auto &message : block->messages) {
+			if (!message->data()->isService()) {
+				return true;
+			}
+		}
+	}
+	if (const auto from = migrateFrom()) {
+		return from->canExportChatHistory();
+	}
+	return false;
 }
 
 bool PeerData::autoTranslation() const {
@@ -879,11 +881,6 @@ void PeerData::setBarSettings(const MTPPeerSettings &data) {
 				= qs(data.vbusiness_bot_manage_url().value_or_empty());
 			_barDetails->paysPerMessage
 				= data.vcharge_paid_message_stars().value_or_empty();
-		}
-		if (const auto user = asUser()) {
-			if (Ayu::AccountInfo::Observe(user)) {
-				session().changes().peerUpdated(this, UpdateFlag::FullInfo);
-			}
 		}
 		using Flag = PeerBarSetting;
 		setBarSettings((data.is_add_contact() ? Flag::AddContact : Flag())
@@ -1659,6 +1656,9 @@ Data::SavedSublist *PeerData::monoforumSublistFor(
 		PeerId sublistPeerId) const {
 	if (!sublistPeerId) {
 		return nullptr;
+	} else if (isSelf()) {
+		return owner().savedMessages().sublistLoaded(
+			owner().peer(sublistPeerId));
 	} else if (const auto monoforum = this->monoforum()) {
 		return monoforum->sublistLoaded(owner().peer(sublistPeerId));
 	}
@@ -2147,14 +2147,35 @@ void SetTopPinnedMessageId(
 			0);
 		session.saveSettingsDelayed();
 	}
-	session.storage().add(Storage::SharedMediaAddExisting(
-		peer->id,
-		MsgId(0), // topicRootId
-		PeerId(0), // monoforumPeerId
-		Storage::SharedMediaType::Pinned,
+	ApplyPinnedMessageId(
+		peer,
 		messageId,
-		{ messageId, ServerMaxMsgId }));
-	peer->owner().history(peer)->setHasPinnedMessages(true);
+		MsgId(0), // topicRootId
+		PeerId(0)); // monoforumPeerId
+}
+
+void ApplyPinnedMessageId(
+		not_null<PeerData*> peer,
+		MsgId messageId,
+		MsgId topicRootId,
+		PeerId monoforumPeerId) {
+	auto &session = peer->session();
+	if (const auto item = peer->owner().message(peer->id, messageId)) {
+		item->setIsPinned(true);
+		session.storage().add(Storage::SharedMediaAddSlice(
+			peer->id,
+			MsgId(0), // topicRootId
+			PeerId(0), // monoforumPeerId
+			Storage::SharedMediaType::Pinned,
+			{},
+			{ messageId, ServerMaxMsgId }));
+	} else {
+		session.api().requestPinnedMessagesIfNeeded(
+			peer,
+			messageId,
+			topicRootId,
+			monoforumPeerId);
+	}
 }
 
 FullMsgId ResolveTopPinnedId(

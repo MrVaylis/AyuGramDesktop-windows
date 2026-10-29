@@ -43,11 +43,11 @@ using namespace AyuBuilder;
 
 namespace {
 
-void BuildGlobalFilters(SectionBuilder &builder) {
+void BuildFiltersSettings(SectionBuilder &builder) {
 	auto *settings = &AyuSettings::getInstance();
 
 	builder.addSkip();
-	builder.addSubsectionTitle(tr::ayu_FiltersGlobalSection());
+	builder.addSubsectionTitle(tr::ayu_RegexFilters());
 
 	const auto enabledButton = builder.addButton({
 		.id = u"ayu/filtersEnabled"_q,
@@ -66,58 +66,22 @@ void BuildGlobalFilters(SectionBuilder &builder) {
 		}, enabledButton->lifetime());
 	}
 
-	builder.addSubsectionTitle(tr::ayu_FiltersScopeHeader());
-
-	const auto channelsButton = builder.addButton({
-		.id = u"ayu/filtersEnabledInChannels"_q,
-		.title = tr::ayu_FiltersInChannels(),
+	const auto sharedButton = builder.addButton({
+		.id = u"ayu/filtersEnabledInChats"_q,
+		.altIds = { u"ayu/filtersInChats"_q },
+		.title = tr::ayu_RegexFiltersEnableSharedInChats(),
 		.st = &st::settingsButtonNoIcon,
-		.toggled = rpl::single(settings->filtersEnabledInChannels()),
+		.toggled = rpl::single(settings->filtersEnabledInChats()),
 	});
-	if (channelsButton) {
-		channelsButton->toggledValue(
+	if (sharedButton) {
+		sharedButton->toggledValue(
 		) | rpl::filter([=](bool enabled) {
-			return (enabled != settings->filtersEnabledInChannels());
+			return (enabled != settings->filtersEnabledInChats());
 		}) | on_next([=](bool enabled) {
-			AyuSettings::getInstance().setFiltersEnabledInChannels(enabled);
+			AyuSettings::getInstance().setFiltersEnabledInChats(enabled);
 			FiltersCacheController::rebuildCache();
 			FiltersCacheController::fireUpdate();
-		}, channelsButton->lifetime());
-	}
-
-	const auto groupsButton = builder.addButton({
-		.id = u"ayu/filtersEnabledInGroups"_q,
-		.altIds = { u"ayu/filtersEnabledInChats"_q, u"ayu/filtersInChats"_q },
-		.title = tr::ayu_FiltersInGroups(),
-		.st = &st::settingsButtonNoIcon,
-		.toggled = rpl::single(settings->filtersEnabledInGroups()),
-	});
-	if (groupsButton) {
-		groupsButton->toggledValue(
-		) | rpl::filter([=](bool enabled) {
-			return (enabled != settings->filtersEnabledInGroups());
-		}) | on_next([=](bool enabled) {
-			AyuSettings::getInstance().setFiltersEnabledInGroups(enabled);
-			FiltersCacheController::rebuildCache();
-			FiltersCacheController::fireUpdate();
-		}, groupsButton->lifetime());
-	}
-
-	const auto privateButton = builder.addButton({
-		.id = u"ayu/filtersEnabledInPrivate"_q,
-		.title = tr::ayu_FiltersInPrivate(),
-		.st = &st::settingsButtonNoIcon,
-		.toggled = rpl::single(settings->filtersEnabledInPrivate()),
-	});
-	if (privateButton) {
-		privateButton->toggledValue(
-		) | rpl::filter([=](bool enabled) {
-			return (enabled != settings->filtersEnabledInPrivate());
-		}) | on_next([=](bool enabled) {
-			AyuSettings::getInstance().setFiltersEnabledInPrivate(enabled);
-			FiltersCacheController::rebuildCache();
-			FiltersCacheController::fireUpdate();
-		}, privateButton->lifetime());
+		}, sharedButton->lifetime());
 	}
 
 	const auto blockedButton = builder.addButton({
@@ -137,21 +101,12 @@ void BuildGlobalFilters(SectionBuilder &builder) {
 		}, blockedButton->lifetime());
 	}
 
-	const auto collapseButton = builder.addButton({
-		.id = u"ayu/collapseDuplicates"_q,
-		.title = tr::ayu_CollapseDuplicates(),
-		.st = &st::settingsButtonNoIcon,
-		.toggled = rpl::single(settings->collapseDuplicates()),
-	});
-	if (collapseButton) {
-		collapseButton->toggledValue(
-		) | rpl::filter([=](bool enabled) {
-			return (enabled != settings->collapseDuplicates());
-		}) | on_next([=](bool enabled) {
-			AyuSettings::getInstance().setCollapseDuplicates(enabled);
-		}, collapseButton->lifetime());
-		AyuSectionBuilder(builder).addBetaBadge(collapseButton);
-	}
+	builder.addSkip();
+}
+
+void BuildShared(SectionBuilder &builder) {
+	builder.addDivider();
+	builder.addSkip();
 
 	const auto controller = builder.controller();
 	builder.addButton({
@@ -164,6 +119,10 @@ void BuildGlobalFilters(SectionBuilder &builder) {
 			controller->showSettings(AyuFiltersList::Id());
 		},
 	});
+}
+
+void BuildShadowBan(SectionBuilder &builder) {
+	const auto controller = builder.controller();
 
 	builder.addButton({
 		.id = u"ayu/shadowBanIds"_q,
@@ -177,45 +136,9 @@ void BuildGlobalFilters(SectionBuilder &builder) {
 			controller->showSettings(AyuFiltersList::Id());
 		},
 	});
-
-	builder.addSkip();
 }
 
-void BuildPerChatFilters(SectionBuilder &builder) {
-	builder.addDivider();
-	builder.addSkip();
-	builder.addSubsectionTitle(tr::ayu_FiltersPerChatSection());
-
-	const auto controller = builder.controller();
-	builder.addButton({
-		.id = u"ayu/selectChatFilters"_q,
-		.title = tr::ayu_FiltersAddPerChat(),
-		.st = &st::settingsButtonNoIcon,
-		.onClick = [=] {
-			if (const auto window = Core::App().activeWindow()) {
-				if (const auto scontroller = window->sessionController()) {
-					auto types = InlineBots::PeerTypes();
-					types |= InlineBots::PeerType::Bot;
-					types |= InlineBots::PeerType::Group;
-					types |= InlineBots::PeerType::Broadcast;
-
-					Window::ShowChooseRecipientBox(
-						scontroller,
-						[=](not_null<Data::Thread*> thread) {
-							const auto peer = thread->peer();
-							controller->dialogId = getDialogIdFromPeer(peer);
-							controller->showExclude = true;
-							controller->showSettings(AyuFiltersList::Id());
-							return true;
-						},
-						tr::ayu_FiltersMenuSelectChat(),
-						nullptr,
-						types);
-				}
-			}
-		},
-	});
-
+void BuildPerDialog(SectionBuilder &builder) {
 	builder.add([](const BuildContext &ctx) {
 		v::match(ctx, [&](const WidgetContext &wctx) {
 			if (!AyuDatabase::hasPerDialogFilters()) {
@@ -226,6 +149,7 @@ void BuildPerChatFilters(SectionBuilder &builder) {
 			const auto controller = wctx.controller;
 
 			AddSkip(container);
+			AddDivider(container);
 
 			auto ctrl = container->lifetime().make_state<PerDialogFiltersListController>(
 				&controller->session(),
@@ -254,8 +178,10 @@ const auto kMeta = BuildHelper({
 	.title = &tr::ayu_CategoryFilters,
 	.icon = &st::menuIconTagFilter,
 }, [](SectionBuilder &builder) {
-	BuildGlobalFilters(builder);
-	BuildPerChatFilters(builder);
+	BuildFiltersSettings(builder);
+	BuildShared(builder);
+	BuildShadowBan(builder);
+	BuildPerDialog(builder);
 });
 
 } // namespace

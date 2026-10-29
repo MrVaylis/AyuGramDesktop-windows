@@ -18,6 +18,7 @@ https://github.com/telegramdesktop/tdesktop/blob/master/LEGAL
 #include "api/api_transcribes.h"
 #include "main/main_session.h"
 #include "main/main_account.h"
+#include "main/main_app_config.h"
 #include "mtproto/mtp_instance.h"
 #include "mtproto/mtproto_config.h"
 #include "mtproto/mtproto_dc_options.h"
@@ -68,6 +69,9 @@ https://github.com/telegramdesktop/tdesktop/blob/master/LEGAL
 #include "base/unixtime.h"
 #include "window/window_session_controller.h"
 #include "window/window_controller.h"
+#include "wallet/wallet_panel.h"
+#include "wallet/wallet_session.h"
+#include "wallet/wallet_transfer_messages.h"
 #include "iv/editor/iv_editor_session.h"
 #include "ui/boxes/confirm_box.h"
 #include "apiwrap.h"
@@ -1451,6 +1455,15 @@ void Updates::applyUpdateNoPtsCheck(const MTPUpdate &update) {
 			const auto item = session().data().message(peerId, msgId.v);
 			if (item) {
 				item->setIsPinned(d.is_pinned());
+			} else if (d.is_pinned()) {
+				if (const auto peer = session().data().channelLoaded(
+						d.vchannel_id())) {
+					session().api().requestPinnedMessagesIfNeeded(
+						peer,
+						msgId.v,
+						MsgId(0), // topicRootId
+						PeerId(0)); // monoforumPeerId
+				}
 			}
 		}
 	} break;
@@ -1479,6 +1492,14 @@ void Updates::applyUpdateNoPtsCheck(const MTPUpdate &update) {
 			const auto item = session().data().message(peerId, msgId.v);
 			if (item) {
 				item->setIsPinned(d.is_pinned());
+			} else if (d.is_pinned()) {
+				if (const auto peer = session().data().peerLoaded(peerId)) {
+					session().api().requestPinnedMessagesIfNeeded(
+						peer,
+						msgId.v,
+						MsgId(0), // topicRootId
+						PeerId(0)); // monoforumPeerId
+				}
 			}
 		}
 	} break;
@@ -1662,11 +1683,33 @@ void Updates::feedUpdate(const MTPUpdate &update) {
 		if (const auto id = session().data().messageIdByRandomId(randomId)) {
 			const auto newId = d.vid().v;
 			const auto &owner = session().data();
+			auto &drafts = session().wallet().transferMessages();
 			if (const auto local = owner.message(id)) {
 				if (local->isScheduled()) {
 					session().scheduledMessages().apply(d, local);
 				} else if (local->isBusinessShortcut()) {
 					session().data().shortcutMessages().apply(d, local);
+				} else if (drafts.refusePairing(local, newId)) {
+					// A Gram transfer draft is refused only when some
+					// item already sits at the served id, and the wallet
+					// keeps the draft sending exactly when it settled
+					// that id from one of its own drafts: an identical
+					// draft took this one's message, so its own message
+					// is still coming and settles it later, by content,
+					// which is why its random id deliberately stays
+					// registered until then. Otherwise the served id is
+					// this draft's own message, arrived through a path
+					// that never reaches the adoption hook, and the
+					// registry retired the draft itself. The refusal is
+					// returned in both cases, because promoting here
+					// would destroy the server's settled card to make
+					// room for a draft that carries none of its content.
+					// The registry answers false for every item it does
+					// not own, so no other message changes branch, and
+					// the skipped unregisterMessageSentData is a no-op
+					// here: nothing under wallet/ ever calls
+					// registerMessageSentData.
+					return;
 				} else {
 					const auto existing = session().data().message(
 						id.peer,
@@ -2151,6 +2194,7 @@ void Updates::feedUpdate(const MTPUpdate &update) {
 
 	case mtpc_updateConfig: {
 		session().mtp().requestConfig();
+		session().appConfig().refresh(true);
 		session().promoSuggestions().invalidate();
 	} break;
 
@@ -2169,7 +2213,7 @@ void Updates::feedUpdate(const MTPUpdate &update) {
 						|| user->phone().isEmpty())
 						? QString()
 						: Ui::FormatPhone(user->phone())),
-					user->username());
+					user->editableUsername());
 
 				session().changes().peerUpdated(
 					user,
@@ -2321,6 +2365,8 @@ void Updates::feedUpdate(const MTPUpdate &update) {
 			return;
 		} else if (d.is_popup()) {
 			if (const auto show = Iv::Editor::ActiveWindowShow(&session())) {
+				show->showBox(Ui::MakeInformBox(text));
+			} else if (const auto show = Wallet::ActiveWindowShow(&session())) {
 				show->showBox(Ui::MakeInformBox(text));
 			} else {
 				const auto &windows = session().windows();
@@ -2474,47 +2520,6 @@ void Updates::feedUpdate(const MTPUpdate &update) {
 	case mtpc_updateSavedDialogPinned: {
 		session().data().savedMessages().apply(
 			update.c_updateSavedDialogPinned());
-	} break;
-
-	case mtpc_updateChannelParticipant: {
-		const auto &d = update.c_updateChannelParticipant();
-		if (UserId(d.vuser_id().v) != session().userId()) {
-			break;
-		}
-		const auto channel = session().data().channelLoaded(d.vchannel_id());
-		if (!channel) {
-			break;
-		}
-		const auto participant = d.vnew_participant();
-		const auto banned = participant
-			&& participant->type() == mtpc_channelParticipantBanned
-			&& participant->c_channelParticipantBanned()
-				.vbanned_rights().c_chatBannedRights().is_view_messages();
-		if (!participant || banned) {
-			if (d.vprev_participant()) {
-				channel->setWasIn();
-			}
-			channel->setLeftVoluntarily(UserId(d.vactor_id().v) == session().userId());
-			channel->markForbidden();
-		}
-	} break;
-
-	case mtpc_updateChatParticipant: {
-		const auto &d = update.c_updateChatParticipant();
-		if (UserId(d.vuser_id().v) != session().userId() || d.vnew_participant()) {
-			break;
-		}
-		if (const auto chat = session().data().chatLoaded(d.vchat_id())) {
-			if (d.vprev_participant()) {
-				chat->setWasIn();
-			}
-			chat->setLeftVoluntarily(UserId(d.vactor_id().v) == session().userId());
-			chat->setFlags(chat->flags() | ChatDataFlag::Forbidden);
-			if (const auto history = session().data().historyLoaded(chat)) {
-				history->updateChatListExistence();
-			}
-			session().changes().peerUpdated(chat, Data::PeerUpdate::Flag::Members);
-		}
 	} break;
 
 	case mtpc_updateChannel: {
@@ -2916,6 +2921,31 @@ void Updates::feedUpdate(const MTPUpdate &update) {
 	case mtpc_updateStarsBalance: {
 		const auto &data = update.c_updateStarsBalance();
 		_session->credits().apply(data);
+	} break;
+
+	case mtpc_updateWalletState: {
+		const auto &data = update.c_updateWalletState();
+		_session->wallet().applyUpdate(data);
+	} break;
+
+	case mtpc_updateSentWalletTransaction: {
+		const auto &data = update.c_updateSentWalletTransaction();
+		_session->wallet().applyUpdate(data);
+	} break;
+
+	case mtpc_updateWalletGaslessInfo: {
+		const auto &data = update.c_updateWalletGaslessInfo();
+		_session->wallet().applyUpdate(data);
+	} break;
+
+	case mtpc_updateWalletTonConnectSession: {
+		const auto &data = update.c_updateWalletTonConnectSession();
+		_session->wallet().applyUpdate(data);
+	} break;
+
+	case mtpc_updateWalletTonConnectPendingDisconnect: {
+		const auto &data = update.c_updateWalletTonConnectPendingDisconnect();
+		_session->wallet().applyUpdate(data);
 	} break;
 
 	case mtpc_updatePaidReactionPrivacy: {

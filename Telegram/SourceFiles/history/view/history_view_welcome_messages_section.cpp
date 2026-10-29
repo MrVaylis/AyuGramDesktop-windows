@@ -641,7 +641,7 @@ void WelcomeMessagesWidget::edit(not_null<HistoryItem*> item) {
 	const auto hasMediaWithCaption = item->media()
 		&& item->media()->allowsEditCaption();
 	if (sending.text.isEmpty() && !hasMediaWithCaption) {
-		controller()->show(Box<DeleteMessagesBox>(item, false));
+		controller()->show(Box<DeleteMessagesBox>(item));
 		return;
 	}
 	const auto limits = Data::PremiumLimits(&session());

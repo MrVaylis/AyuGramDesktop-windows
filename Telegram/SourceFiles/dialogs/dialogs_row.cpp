@@ -835,6 +835,10 @@ void Row::paintUserpic(
 		&& !(badgeUser && Data::IsUserOnline(badgeUser))
 		&& !subscribed
 		&& !insideCommunity;
+	_cornerBadgeUserpic->communityMember = communityMember ? 1 : 0;
+	// Only stories outline and online badge differ for active row.
+	const auto activeMatters = storiesCount
+		|| !(subscribed || communityMember);
 	if (keyChanged
 		|| !_cornerBadgeUserpic->layersManager.isFinished()
 		|| activeChanged
@@ -905,6 +909,26 @@ void Row::paintUserpic(
 bool Row::lookupIsInTopicJump(int x, int y) const {
 	const auto history = this->history();
 	return history && history->lastItemDialogsView().isInTopicJump(x, y);
+}
+
+bool Row::lookupIsInCommunityBadge(
+		int x,
+		int y,
+		const style::DialogRow &st) const {
+	if (!_cornerBadgeUserpic
+		|| !_cornerBadgeUserpic->communityMember
+		|| !_cornerBadgeUserpic->layersManager.isSameLayer(kTopLayer)) {
+		return false;
+	}
+	const auto size = st::dialogsCommunityBadgeSize;
+	const auto &skip = st::dialogsCommunityBadgeSkip;
+	const auto stroke = st::dialogsCommunityBadgeStroke;
+	return QRect(
+		st.padding.left() + st.photoSize - skip.x() - size,
+		st.padding.top() + st.photoSize - skip.y() - size,
+		size,
+		size
+	).marginsAdded({ stroke, stroke, stroke, stroke }).contains(x, y);
 }
 
 void Row::stopLastRipple() {
@@ -983,7 +1007,7 @@ void FakeRow::invalidateTopic() {
 const Ui::Text::String &FakeRow::name() const {
 	if (_name.isEmpty()) {
 		const auto from = _searchInChat
-			&& !FiltersController::isBlockedOrRegexFiltered(_item)
+			&& !FiltersController::filtered(_item)
 			? _item->displayFrom()
 			: nullptr;
 		const auto peer = from ? from : _item->history()->peer.get();

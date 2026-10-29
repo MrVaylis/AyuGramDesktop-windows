@@ -37,6 +37,8 @@ body:
         **Don't use kernel version (uname), it's useless.**
     validations:
       required: true
+  - type: input
+    attributes:
       label: Version of AyuGram Desktop
       description: >
         **Don't use 'latest'**, specify actual version.

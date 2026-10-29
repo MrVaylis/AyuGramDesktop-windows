@@ -11,8 +11,6 @@ https://github.com/telegramdesktop/tdesktop/blob/master/LEGAL
 #include "history/history.h" // History::session
 #include "history/history_item.h" // HistoryItem::originalText
 #include "history/history_item_helpers.h" // DropDisallowedCustomEmoji
-#include "data/data_chat.h"
-#include "data/data_channel.h"
 #include "base/unixtime.h"
 #include "base/qthelp_regex.h"
 #include "base/qthelp_url.h"
@@ -1045,6 +1043,10 @@ void MessageLinksParser::setDisabled(bool disabled) {
 	_disabled = disabled;
 }
 
+bool MessageLinksParser::disabled() const {
+	return _disabled;
+}
+
 bool MessageLinksParser::eventFilter(QObject *object, QEvent *event) {
 	if (object == _field) {
 		if (event->type() == QEvent::KeyPress) {
@@ -1247,16 +1249,9 @@ base::unique_qptr<Ui::RpWidget> CreateDisabledFieldView(
 		QWidget *toastParent) {
 	auto result = base::make_unique_q<Ui::AbstractButton>(parent);
 	const auto raw = result.get();
-	const auto isForbidden = (peer->isChat() && peer->asChat()->isForbidden())
-		|| (peer->isChannel() && peer->asChannel()->isForbidden());
-	auto labelText = isForbidden
-		? ((peer->isMegagroup() || peer->isChat())
-			? tr::lng_group_not_accessible()
-			: tr::lng_channel_not_accessible())
-		: tr::lng_send_text_no();
 	const auto label = CreateChild<Ui::FlatLabel>(
 		result.get(),
-		std::move(labelText),
+		tr::lng_send_text_no(),
 		st::historySendDisabled);
 	label->setAttribute(Qt::WA_TransparentForMouseEvents);
 	raw->setPointerCursor(false);

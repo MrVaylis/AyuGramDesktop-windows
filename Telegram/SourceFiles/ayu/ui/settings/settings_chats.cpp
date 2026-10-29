@@ -13,8 +13,6 @@
 #include "ayu/ui/settings/ayu_builder.h"
 #include "ayu/ui/settings/settings_ayu_utils.h"
 #include "ayu/ui/settings/settings_main.h"
-#include "core/application.h"
-#include "core/core_settings.h"
 #include "settings/settings_builder.h"
 #include "settings/settings_common.h"
 #include "styles/style_ayu_icons.h"
@@ -59,17 +57,17 @@ void BuildStickersAndEmoji(SectionBuilder &builder, AyuSectionBuilder &ayu) {
 		.title = tr::ayu_HideReactions(),
 		.checkboxes = {
 			NestedEntry{
-				tr::ayu_HideReactionsInChannels(),
+				tr::ayu_HideReactionsInChannels(tr::now),
 				[] { return !AyuSettings::getInstance().showChannelReactions(); },
 				[](bool v) { AyuSettings::getInstance().setShowChannelReactions(!v); }
 			},
 			NestedEntry{
-				tr::ayu_HideReactionsInGroups(),
+				tr::ayu_HideReactionsInGroups(tr::now),
 				[] { return !AyuSettings::getInstance().showGroupReactions(); },
 				[](bool v) { AyuSettings::getInstance().setShowGroupReactions(!v); }
 			},
 			NestedEntry{
-				tr::ayu_HideReactionsInPrivateChats(),
+				tr::ayu_HideReactionsInPrivateChats(tr::now),
 				[] { return !AyuSettings::getInstance().showPrivateChatReactions(); },
 				[](bool v) { AyuSettings::getInstance().setShowPrivateChatReactions(!v); }
 			}
@@ -99,18 +97,6 @@ void BuildGroupsAndChannels(SectionBuilder &builder, AyuSectionBuilder &ayu) {
 		.setter = [](int index) {
 			AyuSettings::getInstance().setChannelBottomButton(
 				static_cast<ChannelBottomButton>(index));
-		},
-	});
-
-	ayu.addToggle({
-		.id = u"ayu/pullToNextChannel"_q,
-		.title = tr::lng_settings_pull_to_next_channel(),
-		.getter = [] {
-			return Core::App().settings().pullToNextChannel();
-		},
-		.setter = [](bool enabled) {
-			Core::App().settings().setPullToNextChannel(enabled);
-			Core::App().saveSettingsDelayed();
 		},
 	});
 

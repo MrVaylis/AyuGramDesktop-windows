@@ -20,8 +20,6 @@ struct ShotConfig
 	not_null<Window::SessionController*> controller;
 	std::shared_ptr<Ui::ChatStyle> st;
 	std::vector<not_null<HistoryItem*>> messages;
-	HistoryView::ElementChatMode chatMode = HistoryView::ElementChatMode::Default;
-	HistoryView::Context context = HistoryView::Context::History;
 };
 
 enum RenderPart

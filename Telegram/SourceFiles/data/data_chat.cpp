@@ -150,20 +150,12 @@ void ChatData::invalidateParticipants() {
 void ChatData::setFlags(ChatDataFlags which) {
 	const auto wasIn = amIn();
 	_flags.set(which);
-	if (amIn() && isLoaded()) {
-		_wasIn = true;
-		_leftVoluntarily = false;
-	}
 	if (wasIn && !amIn()) {
-		if (!AyuSettings::getInstance().keepForbiddenChats() || !wasRemoved()) {
-			crl::on_main(&session(), [=] {
-				if (!amIn()
-					&& (!AyuSettings::getInstance().keepForbiddenChats()
-						|| !wasRemoved())) {
-					Core::App().closeChatFromWindows(this);
-				}
-			});
-		}
+		crl::on_main(&session(), [=] {
+			if (!amIn()) {
+				Core::App().closeChatFromWindows(this);
+			}
+		});
 	}
 }
 

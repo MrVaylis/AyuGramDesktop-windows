@@ -66,6 +66,57 @@ namespace {
 constexpr auto kSortByOnlineThrottle = 3 * crl::time(1000);
 constexpr auto kSearchPerPage = 50;
 
+class ContactsMutualRow final : public PeerListRow {
+public:
+	using PeerListRow::PeerListRow;
+
+protected:
+	QSize rightActionSize() const override {
+		return isMutualContact()
+			? QSize(st::ayuContactsMutualIcon.width(), st::ayuContactsMutualIcon.height())
+			: QSize();
+	}
+
+	QMargins rightActionMargins() const override {
+		const auto size = rightActionSize();
+		if (size.isEmpty()) {
+			return QMargins();
+		}
+		const auto right = st::contactsWithStories.item.photoPosition.x();
+		return QMargins(
+			right,
+			(st::contactsWithStories.item.height - size.height()) / 2,
+			right,
+			0);
+	}
+
+	bool rightActionDisabled() const override {
+		return false;
+	}
+
+	void rightActionPaint(
+			Painter &p,
+			int x,
+			int y,
+			int outerWidth,
+			bool selected,
+			bool actionSelected) override {
+		if (!isMutualContact()) {
+			return;
+		}
+		(selected || actionSelected
+			? st::ayuContactsMutualIconOver
+			: st::ayuContactsMutualIcon).paint(p, x, y, outerWidth);
+	}
+
+private:
+	[[nodiscard]] bool isMutualContact() const {
+		const auto user = peer()->asUser();
+		return user && (user->flags() & UserDataFlag::MutualContact);
+	}
+
+};
+
 } // namespace
 
 Data::CommunityInfo *JoinedCommunityChats(not_null<PeerData*> peer) {
@@ -91,13 +142,22 @@ object_ptr<Ui::BoxContent> PrepareContactsBox(
 		std::unique_ptr<PeerListRow> createRow(
 				not_null<UserData*> user) override {
 			return !user->isSelf()
-				? ContactsBoxController::createRow(user)
+				? std::make_unique<ContactsMutualRow>(user)
 				: nullptr;
 		}
 
 		void rowMiddleClicked(
 				not_null<PeerListRow*> row) override {
 			_wheelClicks.fire(row->peer());
+		}
+
+		void rowRightActionClicked(
+				not_null<PeerListRow*> row) override {
+			if (const auto user = row->peer()->asUser();
+				user && (user->flags() & UserDataFlag::MutualContact)) {
+				delegate()->peerListUiShow()->showToast(
+					tr::ayu_MutualContactInfo(tr::now));
+			}
 		}
 
 	private:
@@ -1103,10 +1163,14 @@ void ChooseTopicSearchController::searchOnServer() {
 		MTP_int(kSearchPerPage)
 	)).done([=](const MTPmessages_ForumTopics &result) {
 		_requestId = 0;
+		const auto weak = base::make_weak(this);
 		const auto savedTopicId = _offsetTopicId;
 		const auto byCreation = result.data().is_order_by_create_date();
-		_forum->applyReceivedTopics(result, [&](
+		const auto applied = _forum->applyReceivedTopics(result, [&](
 				not_null<Data::ForumTopic*> topic) {
+			if (!weak) {
+				return;
+			}
 			_offsetTopicId = topic->rootId();
 			if (byCreation) {
 				_offsetDate = topic->creationDate();
@@ -1119,6 +1183,9 @@ void ChooseTopicSearchController::searchOnServer() {
 			}
 			delegate()->peerListSearchAddRow(topic->rootId().bare);
 		});
+		if (!applied || !weak) {
+			return;
+		}
 		if (_offsetTopicId == savedTopicId) {
 			_allLoaded = true;
 		}
@@ -1624,7 +1691,6 @@ void PaintRestrictionBadge(
 				st::premiumButtonFg->c,
 				&check);
 		} else {
-			auto hq = PainterHighQualityEnabler(p);
 			const auto &icon = st::stickersPremiumLock;
 			const auto width = icon.width();
 			const auto height = icon.height();
@@ -1640,6 +1706,7 @@ void PaintRestrictionBadge(
 			cache.badge.fill(Qt::transparent);
 			const auto inner = QRect(add, add, rect.width(), rect.height());
 			auto q = QPainter(&cache.badge);
+			auto hq = PainterHighQualityEnabler(q);
 			auto pen = check.border->p;
 			pen.setWidthF(check.width);
 			q.setPen(pen);

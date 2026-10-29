@@ -114,7 +114,7 @@ object_ptr<Ui::RpWidget> InfoRow(
 
 	label->setMarkedText(
 		text,
-		context
+		std::move(context)
 	);
 
 	object_ptr<Info::Profile::FloatingIcon>(

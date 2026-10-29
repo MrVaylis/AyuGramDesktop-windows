@@ -7,7 +7,6 @@ https://github.com/telegramdesktop/tdesktop/blob/master/LEGAL
 */
 #include "data/data_forum_topic.h"
 
-#include "ayu/ayu_settings.h"
 #include "data/data_channel.h"
 #include "data/data_changes.h"
 #include "data/data_forum.h"
@@ -189,15 +188,6 @@ int32 ForumGeneralIconColor(const QColor &color) {
 		| (uint32(color.alpha() == 255 ? 0 : color.alpha()) << 24));
 }
 
-QColor ParseForumGeneralIconColor(int32 value) {
-	const auto alpha = uint32(value) >> 24;
-	return QColor(
-		(value >> 16) & 0xFF,
-		(value >> 8) & 0xFF,
-		value & 0xFF,
-		alpha ? alpha : 255);
-}
-
 QString TopicIconEmojiEntity(TopicIconDescriptor descriptor) {
 	return IsForumGeneralIconTitle(descriptor.title)
 		? u"topic_general:"_q + QString::number(uint32(descriptor.colorId))
@@ -338,6 +328,12 @@ bool ForumTopic::canToggleClosed() const {
 
 bool ForumTopic::canTogglePinned() const {
 	return !creating() && peer()->canManageTopics();
+}
+
+bool ForumTopic::dying() const {
+	const auto botGeneral = isGeneral() && peer()->isBot();
+	return (peer()->forum() != _forum)
+		|| (!botGeneral && _forum->topicDeleted(_rootId));
 }
 
 bool ForumTopic::creating() const {
@@ -647,7 +643,7 @@ void ForumTopic::paintUserpic(
 			const auto size = Data::FrameSizeFromTag(tag) / ratio;
 			position = QPoint(
 				(context.width - size) / 2,
-				(st->height - size) / 2);
+				(st::defaultDialogRow.height - size) / 2);
 		}
 		_icon->paint(p, {
 			.textColor = (context.active
@@ -669,7 +665,7 @@ void ForumTopic::paintUserpic(
 		if (context.narrow) {
 			position = QPoint(
 				(context.width - size) / 2,
-				(st->height - size) / 2);
+				(st::defaultDialogRow.height - size) / 2);
 		} else {
 			const auto esize = st::emojiSize;
 			const auto shift = (esize - size) / 2;
@@ -791,7 +787,9 @@ void ForumTopic::applyTitle(const QString &title) {
 	_title = title;
 	invalidateTitleWithIcon();
 	_defaultIcon = QImage();
+	const auto oldFirstLetters = base::take(_titleFirstLetters);
 	indexTitleParts();
+	_list->indexed()->entryNameChanged(FilterId(), this, oldFirstLetters);
 	updateChatListEntry();
 	session().changes().topicUpdated(this, UpdateFlag::Title);
 }
@@ -932,9 +930,7 @@ Dialogs::UnreadState ForumTopic::unreadStateFor(
 	const auto muted = this->muted();
 	result.messages = count;
 	result.chats = count ? 1 : 0;
-	const auto hideMentions = AyuSettings::getInstance().mentionsDisabled(
-		peer()->id.value);
-	result.mentions = hideMentions ? 0 : (unreadMentions().has() ? 1 : 0);
+	result.mentions = unreadMentions().has() ? 1 : 0;
 	result.reactions = unreadReactions().has() ? 1 : 0;
 	result.messagesMuted = muted ? result.messages : 0;
 	result.chatsMuted = muted ? result.chats : 0;
@@ -972,9 +968,6 @@ const base::flat_set<QChar> &ForumTopic::chatListFirstLetters() const {
 }
 
 void ForumTopic::hasUnreadMentionChanged(bool has) {
-	if (AyuSettings::getInstance().mentionsDisabled(peer()->id.value)) {
-		return;
-	}
 	auto was = chatListUnreadState();
 	if (has) {
 		was.mentions = 0;

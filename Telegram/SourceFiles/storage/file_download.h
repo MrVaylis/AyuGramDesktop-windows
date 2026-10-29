@@ -140,7 +140,6 @@ protected:
 		Loaded,
 	};
 
-	void decodeImageAndFinish();
 	void readImage() const;
 
 	bool checkForOpen();

@@ -25,9 +25,11 @@ https://github.com/telegramdesktop/tdesktop/blob/master/LEGAL
 #include "main/main_session_settings.h"
 #include "ui/image/image.h"
 #include "ui/effects/spoiler_mess.h"
+#include "ui/effects/ripple_animation.h"
 #include "ui/chat/chat_style.h"
 #include "ui/text/text_utilities.h"
 #include "ui/grouped_layout.h"
+#include "ui/rect.h"
 #include "ui/cached_round_corners.h"
 #include "ui/painter.h"
 #include "ui/power_saving.h"
@@ -94,6 +96,102 @@ using Data::PhotoSize;
 }
 
 } // namespace
+
+struct Photo::Enlarge final {
+	explicit Enlarge(Fn<void()> update);
+
+	[[nodiscard]] static std::unique_ptr<Enlarge> Create(
+		not_null<Photo*> photo,
+		int width,
+		int height);
+	[[nodiscard]] QRect rect(int outerWidth) const;
+	void press(QPoint origin);
+	void release();
+	void paint(
+		Painter &p,
+		int outerWidth,
+		const style::icon &icon,
+		const QColor &rippleColor);
+
+	Fn<void()> update;
+	uint32 hovered : 1 = 0;
+	QPoint lastPoint;
+	std::unique_ptr<Ui::RippleAnimation> ripple;
+
+};
+
+std::unique_ptr<Photo::Enlarge> Photo::Enlarge::Create(
+		not_null<Photo*> photo,
+		int width,
+		int height) {
+	const auto parent = photo->_parent;
+	const auto outer = 2 * st::historyPageEnlargeSkip
+		+ st::historyPageEnlargeSize;
+	if ((parent->media() == photo)
+		|| !parent->data()->media()
+		|| parent->data()->isSponsored()
+		|| (parent->context() == Context::MediaEditor)
+		|| !parent->data()->media()->webpage()
+		|| !parent->data()->media()->webpage()->suggestEnlargePhoto()
+		|| (width < outer)
+		|| (height < outer)) {
+		return nullptr;
+	}
+	return std::make_unique<Enlarge>([=] { photo->repaint(); });
+}
+
+Photo::Enlarge::Enlarge(Fn<void()> update) : update(std::move(update)) {
+}
+
+QRect Photo::Enlarge::rect(int outerWidth) const {
+	const auto skip = st::historyPageEnlargeSkip;
+	return {
+		outerWidth - skip - st::historyPageEnlargeSize,
+		skip,
+		st::historyPageEnlargeSize,
+		st::historyPageEnlargeSize,
+	};
+}
+
+void Photo::Enlarge::press(QPoint origin) {
+	if (!ripple) {
+		ripple = std::make_unique<Ui::RippleAnimation>(
+			st::defaultRippleAnimation,
+			Ui::RippleAnimation::RoundRectMask(
+				Size(st::historyPageEnlargeSize),
+				st::historyPageEnlargeRadius),
+			update);
+	}
+	ripple->add(origin);
+}
+
+void Photo::Enlarge::release() {
+	if (ripple) {
+		ripple->lastStop();
+	}
+}
+
+void Photo::Enlarge::paint(
+		Painter &p,
+		int outerWidth,
+		const style::icon &icon,
+		const QColor &rippleColor) {
+	auto hq = PainterHighQualityEnabler(p);
+	const auto r = rect(outerWidth);
+	p.drawRoundedRect(
+		r,
+		st::historyPageEnlargeRadius,
+		st::historyPageEnlargeRadius);
+	if (ripple) {
+		p.setOpacity(st::historyPageEnlargeRippleOpacity);
+		ripple->paint(p, r.x(), r.y(), r.width(), &rippleColor);
+		p.setOpacity(1.);
+		if (ripple->empty()) {
+			ripple.reset();
+		}
+	}
+	icon.paintInCenter(p, r);
+}
 
 struct Photo::Streamed {
 	explicit Streamed(std::shared_ptr<::Media::Streaming::Document> shared);
@@ -211,9 +309,6 @@ void Photo::unloadHeavyPart() {
 		_spoiler->animation = nullptr;
 	}
 	_imageCache = QImage();
-	_imageCacheReady = QImage();
-	_imageCachePending = false;
-	_groupedWorker.clear();
 	togglePollingStory(false);
 }
 
@@ -328,16 +423,7 @@ QSize Photo::countCurrentSize(int newWidth) {
 	if (newWidth >= maxWidth()) {
 		newHeight = std::min(newHeight, minHeight());
 	}
-	const auto enlargeInner = st::historyPageEnlargeSize;
-	const auto enlargeOuter = 2 * st::historyPageEnlargeSkip + enlargeInner;
-	const auto showEnlarge = (_parent->media() != this)
-		&& _parent->data()->media()
-		&& !_parent->data()->isSponsored()
-		&& _parent->data()->media()->webpage()
-		&& _parent->data()->media()->webpage()->suggestEnlargePhoto()
-		&& (newWidth >= enlargeOuter)
-		&& (newHeight >= enlargeOuter);
-	_showEnlarge = showEnlarge ? 1 : 0;
+	_enlarge = Enlarge::Create(this, newWidth, newHeight);
 	return { newWidth, newHeight };
 }
 
@@ -365,13 +451,14 @@ void Photo::draw(Painter &p, const PaintContext &context) const {
 	const auto preview = _data->extendedMediaPreview();
 	const auto loaded = preview || _dataMedia->loaded();
 	const auto displayLoading = !preview && _data->displayLoading();
+	const auto mediaEditor = (_parent->context() == Context::MediaEditor);
 
 	const auto hostedInstantView = IsHostedInstantViewMedia(_parent);
 	auto inWebPage = (_parent->media() != this);
 	auto paintx = 0, painty = 0, paintw = width(), painth = height();
 	auto bubble = _parent->hasBubble();
 
-	if (displayLoading) {
+	if (displayLoading && !mediaEditor) {
 		ensureAnimation();
 		if (!_animation->radial.animating()) {
 			_animation->radial.start(_dataMedia->progress());
@@ -383,16 +470,14 @@ void Photo::draw(Painter &p, const PaintContext &context) const {
 	if (_serviceWidth > 0) {
 		paintUserpicFrame(p, context, rthumb.topLeft());
 	} else {
-		const auto rounding = hostedInstantView
-			? std::optional<Ui::BubbleRounding>(Ui::BubbleRounding())
-			: inWebPage
+		const auto rounding = (inWebPage && !hostedInstantView)
 			? std::optional<Ui::BubbleRounding>()
-			: adjustedBubbleRounding();
+			: std::optional<Ui::BubbleRounding>(adjustedBubbleRounding());
 		if (!bubble && !hostedInstantView) {
 			Assert(rounding.has_value());
 			fillImageShadow(p, rthumb, *rounding, context);
 		}
-		const auto revealed = _spoiler
+		const auto revealed = (_spoiler && !mediaEditor)
 			? _spoiler->revealAnimation.value(_spoiler->revealed ? 1. : 0.)
 			: 1.;
 		if (revealed < 1.) {
@@ -413,11 +498,12 @@ void Photo::draw(Painter &p, const PaintContext &context) const {
 		}
 	}
 
-	const auto showEnlarge = loaded && _showEnlarge;
+	const auto showEnlarge = loaded && _enlarge;
 	const auto ttlCovered = _ttlCover
 		&& _spoiler
 		&& !_spoiler->revealed;
 	const auto paintInCenter = !_sensitiveSpoiler
+		&& !mediaEditor
 		&& (radial || (!loaded && !_data->loading()) || ttlCovered);
 	if (paintInCenter || showEnlarge) {
 		p.setPen(Qt::NoPen);
@@ -469,12 +555,12 @@ void Photo::draw(Painter &p, const PaintContext &context) const {
 				sti->historyFileThumbRadialFg,
 				context.paused);
 		}
-	} else if (_sensitiveSpoiler || preview) {
+	} else if ((_sensitiveSpoiler || preview) && !mediaEditor) {
 		drawSpoilerTag(p, rthumb, context, [&] {
 			return spoilerTagBackground();
 		});
 	}
-	if (ttlCovered) {
+	if (ttlCovered && !mediaEditor) {
 		PaintTtlLabel(
 			p,
 			QPoint(paintx, painty),
@@ -483,16 +569,16 @@ void Photo::draw(Painter &p, const PaintContext &context) const {
 			context);
 	}
 	if (showEnlarge) {
-		auto hq = PainterHighQualityEnabler(p);
-		const auto rect = enlargeRect();
-		const auto radius = st::historyPageEnlargeRadius;
-		p.drawRoundedRect(rect, radius, radius);
-		sti->historyPageEnlarge.paintInCenter(p, rect);
+		_enlarge->paint(
+			p,
+			width(),
+			sti->historyPageEnlarge,
+			st->msgDateImgFg()->c);
 	}
 	if (_purchasedPriceTag) {
 		auto geometry = rthumb;
 		if (showEnlarge) {
-			const auto rect = enlargeRect();
+			const auto rect = _enlarge->rect(width());
 			geometry.setY(rect.y() + rect.height());
 		}
 		drawPurchasedTag(p, geometry, context);
@@ -596,90 +682,12 @@ void Photo::validateImageCache(
 		&& _imageCacheRounding == rounding
 		&& _imageCacheBlurred == blurredValue) {
 		return;
-	} else if (large && validateImageCacheAsync(scaled, rounding)) {
-		return;
 	}
 	_imageCache = Images::Round(
 		prepareImageCache(scaled),
 		MediaRoundingMask(rounding));
 	_imageCacheRounding = rounding;
 	_imageCacheBlurred = blurredValue;
-}
-
-// Scaling the full size photo down took 15-25ms right inside paint. Keep
-// showing what we have (or the blurred thumbnail) until a worker is done.
-bool Photo::validateImageCacheAsync(
-		QSize scaled,
-		std::optional<Ui::BubbleRounding> rounding) const {
-	const auto size = scaled * style::DevicePixelRatio();
-	if (!_imageCacheReady.isNull()) {
-		if (_imageCacheReady.size() == size
-			&& _imageCacheReadyRounding == rounding) {
-			_imageCache = base::take(_imageCacheReady);
-			_imageCacheRounding = rounding;
-			_imageCacheBlurred = 0;
-			return true;
-		}
-		_imageCacheReady = QImage();
-	}
-	// One worker at a time, a stale result just repaints and that paint
-	// starts the worker for the current size.
-	if (!_imageCachePending) {
-		_imageCachePending = true;
-
-		// The cached corner masks belong to the main thread.
-		const auto ref = MediaRoundingMask(rounding);
-		auto masks = std::array<QImage, 4>();
-		for (auto i = 0; i != 4; ++i) {
-			if (ref.p[i]) {
-				masks[i] = *ref.p[i];
-			}
-		}
-		const auto source = _dataMedia->image(PhotoSize::Large);
-		const auto background = imageCacheBlurredSource(source);
-		const auto resize = ::Media::Streaming::DecideFrameResize(
-			scaled,
-			source->size());
-		crl::async([
-			=,
-			weak = base::make_weak(this),
-			large = source->original(),
-			blurred = background ? background->original() : QImage()
-		]() mutable {
-			auto mask = Images::CornersMaskRef();
-			for (auto i = 0; i != 4; ++i) {
-				if (!masks[i].isNull()) {
-					mask.p[i] = &masks[i];
-				}
-			}
-			auto result = Images::Round(
-				PrepareWithBlurredBackground(
-					scaled,
-					resize,
-					std::move(large),
-					std::move(blurred)),
-				mask);
-			crl::on_main([=, result = std::move(result)]() mutable {
-				// We are the owner, so check it before touching members.
-				// After unloadHeavyPart() nothing is pending, drop it then.
-				if (!weak.get() || !_imageCachePending) {
-					return;
-				}
-				_imageCachePending = false;
-				_imageCacheReady = std::move(result);
-				_imageCacheReadyRounding = rounding;
-				_parent->repaint();
-			});
-		});
-	}
-	if (_imageCache.isNull()) {
-		_imageCache = Images::Round(
-			prepareImageCacheWithLarge(scaled, nullptr),
-			MediaRoundingMask(rounding));
-		_imageCacheRounding = rounding;
-		_imageCacheBlurred = 1;
-	}
-	return true;
 }
 
 void Photo::validateSpoilerImageCache(
@@ -708,23 +716,21 @@ QImage Photo::prepareImageCache(QSize outer) const {
 }
 
 QImage Photo::prepareImageCacheWithLarge(QSize outer, Image *large) const {
-	const auto blurred = imageCacheBlurredSource(large);
+	using Size = PhotoSize;
+	auto blurred = (Image*)nullptr;
+	if (const auto embedded = _dataMedia->thumbnailInline()) {
+		blurred = embedded;
+	} else if (const auto thumbnail = _dataMedia->image(Size::Thumbnail)) {
+		blurred = thumbnail;
+	} else if (const auto small = _dataMedia->image(Size::Small)) {
+		blurred = small;
+		} else {
+			blurred = large;
+	}
 	const auto resize = large
 		? ::Media::Streaming::DecideFrameResize(outer, large->size())
 		: ::Media::Streaming::ExpandDecision();
 	return PrepareWithBlurredBackground(outer, resize, large, blurred);
-}
-
-Image *Photo::imageCacheBlurredSource(Image *large) const {
-	using Size = PhotoSize;
-	if (const auto embedded = _dataMedia->thumbnailInline()) {
-		return embedded;
-	} else if (const auto thumbnail = _dataMedia->image(Size::Thumbnail)) {
-		return thumbnail;
-	} else if (const auto small = _dataMedia->image(Size::Small)) {
-		return small;
-	}
-	return large;
 }
 
 void Photo::paintUserpicFrame(
@@ -833,20 +839,22 @@ QSize Photo::photoSize() const {
 	return QSize(_data->width(), _data->height());
 }
 
-QRect Photo::enlargeRect() const {
-	const auto skip = st::historyPageEnlargeSkip;
-	const auto enlargeInner = st::historyPageEnlargeSize;
-	const auto enlargeOuter = 2 * skip + enlargeInner;
-	return {
-		width() - enlargeOuter + skip,
-		skip,
-		enlargeInner,
-		enlargeInner,
-	};
-}
-
 ClickHandlerPtr Photo::spoilerTagLink() const {
 	return Media::spoilerTagLink(_spoiler.get(), _spoilerTag);
+}
+
+void Photo::clickHandlerPressedChanged(
+		const ClickHandlerPtr &p,
+		bool pressed) {
+	File::clickHandlerPressedChanged(p, pressed);
+	if (!p || p != _openl || !_enlarge) {
+		return;
+	}
+	if (pressed && _enlarge->hovered) {
+		_enlarge->press(_enlarge->lastPoint);
+	} else if (!pressed) {
+		_enlarge->release();
+	}
 }
 
 QImage Photo::spoilerTagBackground() const {
@@ -877,10 +885,14 @@ TextState Photo::textState(QPoint point, StateRequest request) const {
 			: _data->loading()
 			? _cancell
 			: _savel;
-		if (_showEnlarge
-			&& result.link == _openl
-			&& enlargeRect().contains(point)) {
-			result.cursor = CursorState::Enlarge;
+		if (_enlarge && result.link == _openl) {
+			const auto rect = _enlarge->rect(width());
+			const auto over = rect.contains(point);
+			if (over) {
+				result.cursor = CursorState::Enlarge;
+			}
+			_enlarge->lastPoint = point - rect.topLeft();
+			_enlarge->hovered = over ? 1 : 0;
 		}
 	}
 	if (_parent->media() == this && (!_parent->hasBubble() || isBubbleBottom())) {
@@ -936,8 +948,9 @@ void Photo::drawGrouped(
 	const auto preview = _data->extendedMediaPreview();
 	const auto loaded = preview || _dataMedia->loaded();
 	const auto displayLoading = !preview && _data->displayLoading();
+	const auto mediaEditor = (_parent->context() == Context::MediaEditor);
 
-	if (displayLoading) {
+	if (displayLoading && !mediaEditor) {
 		ensureAnimation();
 		if (!_animation->radial.animating()) {
 			_animation->radial.start(_dataMedia->progress());
@@ -945,7 +958,7 @@ void Photo::drawGrouped(
 	}
 	const auto radial = isRadialAnimation();
 
-	const auto revealed = _spoiler
+	const auto revealed = (_spoiler && !mediaEditor)
 		? _spoiler->revealAnimation.value(_spoiler->revealed ? 1. : 0.)
 		: 1.;
 	if (revealed < 1.) {
@@ -978,6 +991,7 @@ void Photo::drawGrouped(
 		&& _spoiler
 		&& !_spoiler->revealed;
 	const auto paintInCenter = !_sensitiveSpoiler
+		&& !mediaEditor
 		&& (radial
 			|| (!loaded && !_data->loading())
 			|| _data->waitingForAlbum()
@@ -1048,7 +1062,7 @@ void Photo::drawGrouped(
 				context.paused);
 		}
 	}
-	if (ttlCovered) {
+	if (ttlCovered && !mediaEditor) {
 		PaintTtlLabel(
 			p,
 			geometry.topLeft(),
@@ -1164,25 +1178,6 @@ void Photo::validateGroupedCache(
 		: _dataMedia->thumbnailInline()
 		? _dataMedia->thumbnailInline()
 		: Image::BlankMedia().get();
-
-	// Anything but the inline thumbnail can be full size, including the
-	// smaller sizes of a progressive photo, decoded from the same bytes.
-	const auto tiny = _dataMedia->thumbnailInline();
-	if (image != tiny
-		&& image != Image::BlankMedia().get()
-		&& _groupedWorker.validate(
-			this,
-			key,
-			cacheKey,
-			cache,
-			image->original(),
-			tiny ? tiny->original() : QImage(),
-			pixSize * ratio,
-			{ width, height },
-			!loaded,
-			rounding)) {
-		return;
-	}
 
 	*cacheKey = key;
 	auto prepared = Images::Prepare(
@@ -1340,8 +1335,7 @@ bool Photo::needsBubble() const {
 	}
 	const auto item = _parent->data();
 	return !item->isService()
-		&& (item->repliesAreComments()
-			|| item->externalReply()
+		&& (_parent->hasCommentsButton()
 			|| item->viaBot()
 			|| !item->emptyText()
 			|| _parent->displayReply()

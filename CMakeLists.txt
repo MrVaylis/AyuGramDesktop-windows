@@ -54,7 +54,10 @@ include(cmake/nuget.cmake)
 include(cmake/validate_d3d_compiler.cmake)
 include(cmake/target_prepare_qrc.cmake)
 
+set(DESKTOP_APP_DISABLE_AUTOUPDATE ON CACHE BOOL "Custom AyuGram releases use the repository release channel." FORCE)
+
 include(cmake/options.cmake)
+
 include(cmake/external/qt/package.cmake)
 
 set(desktop_app_skip_libs

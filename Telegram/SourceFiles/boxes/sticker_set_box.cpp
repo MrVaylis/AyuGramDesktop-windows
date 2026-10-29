@@ -1176,7 +1176,6 @@ void StickerSetBox::updateButtons() {
 					tr::lng_context_copy_link(tr::now),
 					copyLink,
 					&st::menuIconCopy);
-				addPackIdActions(raw);
 				if (fillSetCreatorMenu) {
 					fillSetCreatorMenu(raw);
 				}

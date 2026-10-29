@@ -9,14 +9,6 @@ https://github.com/telegramdesktop/tdesktop/blob/master/LEGAL
 
 class PeerData;
 
-namespace Ui {
-class VerticalLayout;
-} // namespace Ui
-
-namespace Info {
-class Controller;
-} // namespace Info
-
 namespace Info::Saved {
 
 struct MusicTag {

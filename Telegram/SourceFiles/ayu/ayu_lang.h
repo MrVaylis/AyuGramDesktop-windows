@@ -8,7 +8,6 @@
 
 #include <QtNetwork/QNetworkReply>
 #include <QtXml/QDomDocument>
-#include <rpl/lifetime.h>
 
 class AyuLanguage : public QObject
 {
@@ -40,5 +39,4 @@ private:
 	QNetworkReply *_chkReply = nullptr;
 	bool needFallback = false;
 	QString _currentLangId;
-	rpl::lifetime _lifetime;
 };

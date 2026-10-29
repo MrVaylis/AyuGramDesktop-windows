@@ -37,15 +37,6 @@ struct Descriptor {
 	Data::VolumeController volumeController;
 };
 
-struct MentionsDescriptor {
-	not_null<Main::Session*> session;
-	Fn<bool()> isDisabled;
-	Fn<Data::NotifySound()> currentSound;
-	Fn<void(Data::NotifySound)> updateSound;
-	Fn<void(TimeId)> updateMutePeriod;
-	Data::VolumeController volumeController;
-};
-
 [[nodiscard]] Descriptor ThreadDescriptor(not_null<Data::Thread*> thread);
 [[nodiscard]] Descriptor DefaultDescriptor(
 	not_null<Main::Session*> session,
@@ -56,11 +47,6 @@ bool ToggleMuteForever(not_null<Data::Thread*> thread);
 void FillMuteMenu(
 	not_null<Ui::PopupMenu*> menu,
 	Descriptor descriptor,
-	std::shared_ptr<Ui::Show> show);
-
-void FillMentionsMenu(
-	not_null<Ui::PopupMenu*> menu,
-	not_null<Data::Thread*> thread,
 	std::shared_ptr<Ui::Show> show);
 
 void SetupMuteMenu(

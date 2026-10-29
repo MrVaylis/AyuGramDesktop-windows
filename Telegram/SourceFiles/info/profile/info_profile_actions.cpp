@@ -6,6 +6,8 @@ For license and copyright information please follow this link:
 https://github.com/telegramdesktop/tdesktop/blob/master/LEGAL
 */
 #include "info/profile/info_profile_actions.h"
+#include "ayu/utils/account_info.h"
+#include "countries/countries_instance.h"
 
 #include "api/api_blocked_peers.h"
 #include "api/api_chat_participants.h"
@@ -689,7 +691,6 @@ void SetupAboutPeerIdDrag(
 		object_ptr<Ui::SlideWrap<Ui::VerticalLayout>>(
 			inner,
 			object_ptr<Ui::VerticalLayout>(inner)));
-	other->ease = anim::easeOutCubic;
 	other->toggleOn(state->expanded.value(), anim::type::normal);
 	constexpr auto kSlideDuration = float64(st::slideWrapDuration);
 	other->setDuration(kSlideDuration);
@@ -1468,7 +1469,8 @@ void AddRegistrationOrCreationButton(
 					});
 
 				tooltip->toggleAnimated(true);
-			});
+			},
+			controller->activeChatCurrent().peer());
 		return false;
 	});
 }
@@ -1861,17 +1863,39 @@ Section DetailsFiller::makeInfo() {
 			const auto dataCenter = getPeerDC(_peer);
 			const auto idLabel = dataCenter.isEmpty() ? u"ID"_q : dataCenter;
 
-			auto idDrawableText = IDValue(
-				user
-			) | rpl::map([](TextWithEntities &&text)
-			{
-				return Ui::Text::Code(text.text);
+			auto country = user->session().changes().peerFlagsValue(
+				user, Data::PeerUpdate::Flag::FullInfo
+			) | rpl::map([=] {
+				return user->isBot() ? QString()
+					: Ayu::AccountInfo::PhoneCountry(user);
+			});
+			auto idDrawableText = rpl::combine(
+				IDValue(user),
+				rpl::duplicate(country)
+			) | rpl::map([](TextWithEntities text, const QString &country) {
+				if (text.empty()) {
+					return text;
+				}
+				text = Ui::Text::Link(std::move(text));
+				const auto flag = Countries::Instance().flagEmojiByISO2(country);
+				if (!flag.isEmpty()) {
+					text.text += QChar(0xA0) + flag;
+				}
+				return text;
 			});
 			auto idInfo = addInfoOneLine(
-				rpl::single(idLabel),
+				idLabel,
 				std::move(idDrawableText),
 				tr::ayu_ContextCopyID(tr::now)
 			);
+
+			std::move(country) | rpl::on_next([label = idInfo.text](const QString &code) {
+				const auto name = Countries::Instance().countryNameByISO2(code);
+				label->setToolTip(name.isEmpty() ? QString()
+					: tr::lng_payments_address_country(tr::now)
+						+ u" ("_q + tr::lng_new_contact_phone_number(tr::now)
+						+ u"): "_q + name);
+			}, idInfo.text->lifetime());
 
 			idInfo.text->setClickHandlerFilter([=](auto &&...)
 			{
@@ -1881,6 +1905,16 @@ Section DetailsFiller::makeInfo() {
 					controller->showToast(tr::ayu_IDCopiedToast(tr::now));
 				}
 				return false;
+			});
+			idInfo.text->setContextMenuHook([=, label = idInfo.text](
+					Ui::FlatLabel::ContextMenuRequest request) {
+				if (!request.selection.empty() && !request.fullSelection) {
+					label->fillContextMenu(request);
+					return;
+				}
+				request.menu->addAction(tr::ayu_ContextCopyID(tr::now), [=] {
+					QGuiApplication::clipboard()->setText(IDString(user));
+				});
 			});
 			AddRegistrationOrCreationButton(controller, _peer, idInfo, fitLabelToButton);
 		}
@@ -1981,7 +2015,7 @@ Section DetailsFiller::makeInfo() {
 				_peer
 			) | rpl::map([](TextWithEntities &&text)
 			{
-				return Ui::Text::Code(text.text);
+				return Ui::Text::Link(std::move(text));
 			});
 			auto idInfo = addInfoOneLine(
 				idLabel,
@@ -2006,7 +2040,7 @@ Section DetailsFiller::makeInfo() {
 				_peer->forumTopicFor(topicRootId)->topicRootId()
 			) | rpl::map([](TextWithEntities &&text)
 			{
-				return Ui::Text::Code(text.text);
+				return Ui::Text::Link(std::move(text));
 			});
 			auto idInfo = addInfoOneLine(
 				rpl::single(u"ID"_q),

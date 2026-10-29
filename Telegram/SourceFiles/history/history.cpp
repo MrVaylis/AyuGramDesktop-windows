@@ -7,6 +7,8 @@ https://github.com/telegramdesktop/tdesktop/blob/master/LEGAL
 */
 #include "history/history.h"
 
+#include "ayu/features/filters/filters_controller.h"
+
 #include "history/view/history_view_element.h"
 #include "history/view/history_view_item_preview.h"
 #include "history/view/history_view_translate_tracker.h"
@@ -218,6 +220,7 @@ void History::setHasPendingResizedItems() {
 }
 
 void History::itemRemoved(not_null<HistoryItem*> item) {
+	FiltersController::handleDuplicateItemRemoved(item);
 	if (item == _joinedMessage) {
 		_joinedMessage = nullptr;
 	} else if (item == _newPeerNameChange) {
@@ -1716,6 +1719,7 @@ void History::newItemAdded(not_null<HistoryItem*> item, NewAddType type) {
 		item->incrementReplyToTopCounter();
 	}
 	if (!folderKnown()) {
+		clearFolder();
 		owner().histories().requestDialogEntry(this);
 	}
 	if (const auto topic = item->topic()) {
@@ -2550,6 +2554,9 @@ int History::chatListNameVersion() const {
 }
 
 void History::hasUnreadMentionChanged(bool has) {
+	if (AyuSettings::getInstance().mentionsDisabled(peer->id.value)) {
+		return;
+	}
 	if (isForum()) {
 		return;
 	}
@@ -2831,9 +2838,10 @@ Dialogs::UnreadState History::computeUnreadState() const {
 	result.messages = count;
 	result.chats = count ? 1 : 0;
 	result.marks = mark ? 1 : 0;
-	result.mentions = unreadMentions().has() ? 1 : 0;
 	const auto peer = this->peer.get();
 	const auto &settings = AyuSettings::getInstance();
+	const auto hideMentions = settings.mentionsDisabled(peer->id.value);
+	result.mentions = hideMentions ? 0 : (unreadMentions().has() ? 1 : 0);
 	const auto hideReactions = (peer->isChannel() && !peer->isMegagroup() && !settings.showChannelReactions())
 		|| (peer->isMegagroup() && !settings.showGroupReactions())
 		|| (peer->isUser() && !settings.showPrivateChatReactions());
@@ -3384,6 +3392,15 @@ bool History::lastServerMessageKnown() const {
 }
 
 void History::updateChatListExistence() {
+	if (const auto channel = peer->asChannel()) {
+		if (channel->amIn()) {
+			_isDeletedLocally = false;
+		}
+	} else if (const auto chat = peer->asChat()) {
+		if (chat->amIn()) {
+			_isDeletedLocally = false;
+		}
+	}
 	Entry::updateChatListExistence();
 }
 
@@ -3412,6 +3429,8 @@ bool History::trackUnreadMessages() const {
 bool History::shouldBeInChatList() const {
 	if (peer->migrateTo() || !folderKnown()) {
 		return false;
+	} else if (_isDeletedLocally) {
+		return false;
 	} else if (const auto community = peer->asChannel()
 		; community && community->isCommunity()) {
 		return !(community->flags() & ChannelDataFlag::Forbidden)
@@ -3421,9 +3440,22 @@ bool History::shouldBeInChatList() const {
 		return true;
 	} else if (const auto channel = peer->asChannel()) {
 		if (!channel->amIn()) {
+			if (AyuSettings::getInstance().keepForbiddenChats()
+				&& channel->wasRemoved()
+				&& (lastMessageKnown() && lastMessage() != nullptr)) {
+				return true;
+			}
 			return isTopPromoted();
 		}
 	} else if (const auto chat = peer->asChat()) {
+		if (!chat->amIn()) {
+			if (AyuSettings::getInstance().keepForbiddenChats()
+				&& chat->wasRemoved()
+				&& (lastMessageKnown() && lastMessage() != nullptr)) {
+				return true;
+			}
+			return false;
+		}
 		return chat->amIn()
 			|| !lastMessageKnown()
 			|| (lastMessage() != nullptr);
@@ -3518,6 +3550,9 @@ void History::applyDialog(
 }
 
 void History::dialogEntryApplied() {
+	if (!folderKnown()) {
+		clearFolder();
+	}
 	if (!lastServerMessageKnown()) {
 		setLastServerMessage(nullptr);
 	} else if (!lastMessageKnown()) {

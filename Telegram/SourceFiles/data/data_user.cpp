@@ -41,8 +41,8 @@ https://github.com/telegramdesktop/tdesktop/blob/master/LEGAL
 
 // AyuGram includes
 #include "ayu/ayu_settings.h"
+#include "ayu/features/avatars/ayu_avatar_resolver.h"
 #include "ayu/utils/telegram_helpers.h"
-
 
 namespace {
 
@@ -171,6 +171,9 @@ bool UserData::updateLastseen(Data::LastseenStatus value) {
 	}
 	_lastseen = value;
 	owner().maybeStopWatchForOffline(this);
+	if (_lastseen.isLongAgo() && !hasUserpic() && !username().isEmpty()) {
+		Ayu::AyuAvatarResolver::Instance().resolve(this);
+	}
 	return true;
 }
 
@@ -189,6 +192,9 @@ void UserData::setPhoto(const MTPUserProfilePhoto &photo) {
 	}, [&](const MTPDuserProfilePhotoEmpty &) {
 		removeFlags(UserDataFlag::PersonalPhoto);
 		clearUserpic();
+		if (!username().isEmpty()) {
+			Ayu::AyuAvatarResolver::Instance().resolve(this);
+		}
 	});
 }
 
@@ -375,7 +381,6 @@ void UserData::setName(
 		const QString &newUsername) {
 	auto filteredFirstName = newFirstName;
 	auto filteredLastName = newLastName;
-
 	const auto &settings = AyuSettings::getInstance();
 	if (settings.filterZalgo()) {
 		filteredFirstName = filterZalgo(filteredFirstName);
@@ -412,6 +417,9 @@ void UserData::setUsernames(const Data::Usernames &newUsernames) {
 		| (!ranges::equal(wasUsernames, nowUsernames)
 			? UpdateFlag::Usernames
 			: UpdateFlag()));
+	if (!hasUserpic() && !nowUsername.isEmpty()) {
+		Ayu::AyuAvatarResolver::Instance().resolve(this);
+	}
 }
 
 void UserData::setUsername(const QString &username) {
@@ -689,11 +697,6 @@ bool UserData::readDatesPrivate() const {
 
 bool UserData::allowsForwarding() const {
 	return true;
-}
-
-bool UserData::isAyuNoForwards() const {
-	return (flags() & Flag::NoForwardsMyEnabled)
-		|| (flags() & Flag::NoForwardsPeerEnabled);
 }
 
 void UserData::setNoForwardsFlags(bool myEnabled, bool peerEnabled) {
@@ -1138,3 +1141,8 @@ Ui::BotVerifyDetails ParseBotVerifyDetails(const MTPBotVerification *info) {
 }
 
 } // namespace Data
+
+bool UserData::isAyuNoForwards() const {
+	return (flags() & Flag::NoForwardsMyEnabled)
+		|| (flags() & Flag::NoForwardsPeerEnabled);
+}

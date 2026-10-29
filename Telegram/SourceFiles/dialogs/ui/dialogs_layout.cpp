@@ -11,6 +11,7 @@ https://github.com/telegramdesktop/tdesktop/blob/master/LEGAL
 #include "base/unixtime.h"
 #include "core/ui_integration.h"
 #include "data/data_channel.h"
+#include "data/data_chat.h"
 #include "data/data_drafts.h"
 #include "data/data_folder.h"
 #include "data/data_forum_topic.h"
@@ -43,6 +44,9 @@ https://github.com/telegramdesktop/tdesktop/blob/master/LEGAL
 #include "ui/text/format_values.h"
 #include "ui/text/text_options.h"
 #include "ui/text/text_utilities.h"
+
+// AyuGram includes
+#include "ayu/ayu_settings.h"
 #include "ui/unread_badge.h"
 #include "ui/unread_badge_paint.h"
 #include "ui/unread_counter_format.h"
@@ -468,7 +472,7 @@ void PaintRow(
 	const auto history = entry->asHistory();
 	const auto thread = entry->asThread();
 	const auto sublist = entry->asSublist();
-	const auto itemIsFiltered = item && FiltersController::filtered(item);
+	const auto itemIsFiltered = item && FiltersController::isBlockedOrRegexFiltered(item);
 	const auto itemIsEmpty = item && (item->isEmpty() || itemIsFiltered);
 	const auto showFilteredItem = !fakeRow
 		&& itemIsEmpty
@@ -499,6 +503,16 @@ void PaintRow(
 			? st::dialogsRippleBgActive
 			: st::dialogsRippleBg;
 		row->paintRipple(p, 0, 0, context.width, &ripple->c);
+	}
+
+	const auto origOpacity = p.opacity();
+	const auto peer = history ? history->peer.get() : nullptr;
+	const auto isForbiddenOrLeft = peer && (
+		(peer->isChannel() && (!peer->asChannel()->amIn() || peer->asChannel()->isForbidden())) ||
+		(peer->isChat() && (!peer->asChat()->amIn() || peer->asChat()->isForbidden()))
+	);
+	if (isForbiddenOrLeft) {
+		p.setOpacity(origOpacity * 0.5f);
 	}
 
 	if (flags & Flag::SavedMessages) {
@@ -1098,6 +1112,9 @@ void PaintRow(
 			quick->rippleFg.reset();
 		}
 	}
+	if (isForbiddenOrLeft) {
+		p.setOpacity(origOpacity);
+	}
 }
 
 } // namespace
@@ -1291,7 +1308,7 @@ void RowPainter::Paint(
 		not_null<const FakeRow*> row,
 		const PaintContext &context) {
 	const auto item = row->item();
-	const auto itemIsFiltered = FiltersController::filtered(item);
+	const auto itemIsFiltered = FiltersController::isBlockedOrRegexFiltered(item);
 	const auto topic = context.forum ? row->topic() : nullptr;
 	const auto history = topic ? nullptr : item->history().get();
 	const auto entry = topic ? (Entry*)topic : (Entry*)history;

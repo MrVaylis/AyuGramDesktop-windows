@@ -12,6 +12,7 @@
 #include "lang/lang_text_entity.h"
 #include "settings/settings_common.h"
 #include "styles/style_ayu_styles.h"
+#include "styles/style_boxes.h"
 #include "styles/style_chat_helpers.h"
 #include "styles/style_edit_peer_members.h"
 #include "styles/style_info.h"
@@ -341,7 +342,6 @@ not_null<Ui::RpWidget*> AddInnerToggle(not_null<Ui::VerticalLayout*> container,
 											   anim::easeOutCubic);
 									   },
 									   button->lifetime());
-	wrap->ease = anim::easeOutCubic;
 
 	button->clicks(
 	) | on_next([=]
@@ -370,7 +370,7 @@ CollapsibleToggleResult AddCollapsibleToggle(not_null<Ui::VerticalLayout*> conta
 						  rpl::producer<QString> title,
 						  std::vector<NestedEntry> checkboxes,
 						  bool toggledWhenAll,
-						  QString description) {
+						  rpl::producer<QString> description) {
 	struct CheckboxEntry {
 		not_null<Ui::AbstractCheckView*> checkView;
 		Ui::Checkbox *checkbox = nullptr;
@@ -401,7 +401,7 @@ CollapsibleToggleResult AddCollapsibleToggle(not_null<Ui::VerticalLayout*> conta
 		const auto checkbox = verticalLayout->add(
 			object_ptr<Ui::Checkbox>(
 				verticalLayout,
-				entry.checkboxLabel,
+				rpl::duplicate(entry.checkboxLabel),
 				entry.getter(),
 				st::settingsCheckbox),
 			st::powerSavingButton.padding);
@@ -479,10 +479,8 @@ CollapsibleToggleResult AddCollapsibleToggle(not_null<Ui::VerticalLayout*> conta
 		}
 	}
 
-	if (!description.isEmpty()) {
-		Ui::AddDividerText(verticalLayout, rpl::single(std::move(description)));
-		Ui::AddSkip(verticalLayout);
-	}
+	Ui::AddDividerText(verticalLayout, std::move(description));
+	Ui::AddSkip(verticalLayout);
 
 	// Apply initial lock visuals.
 	for (auto i = 0u; i < cState->entries.size(); ++i) {

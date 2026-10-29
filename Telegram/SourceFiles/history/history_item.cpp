@@ -4839,10 +4839,6 @@ bool HistoryItem::hasPossibleRestrictions() const {
 }
 
 bool HistoryItem::isEmpty() const {
-	if (isMessageHidden(const_cast<HistoryItem*>(this))) {
-		return true;
-	}
-
 	return _text.empty()
 		&& !_media
 		&& !Has<HistoryMessageRichPageSource>()
@@ -4931,7 +4927,7 @@ TextWithEntities HistoryItem::notificationText(
 }
 
 ItemPreview HistoryItem::toPreview(ToPreviewOptions options) const {
-	if (FiltersController::filtered(const_cast<HistoryItem*>(this))) {
+	if (FiltersController::isBlockedOrRegexFiltered(const_cast<HistoryItem*>(this))) {
 		return {};
 	}
 
@@ -8372,6 +8368,9 @@ void HistoryItem::applyMediaContentsRead(TimeId readDate) {
 	const auto media = _media.get();
 	const auto ttl = media ? TimeId(media->ttlSeconds()) : TimeId();
 	if (ttl <= 0) {
+		return;
+	}
+	if (isMessageSavable(this)) {
 		return;
 	}
 	const auto now = base::unixtime::now();

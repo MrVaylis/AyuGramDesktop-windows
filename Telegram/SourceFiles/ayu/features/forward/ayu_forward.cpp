@@ -75,7 +75,6 @@ std::pair<QString, QString> stateName(const PeerId &id) {
 															 QString::number(state->currentChunk + 1),
 															 lt_count2,
 															 QString::number(state->totalChunks)
-
 	);
 
 	const auto partString = state->totalChunks <= 1 ? messagesString : (messagesString + " • " + chunkString);

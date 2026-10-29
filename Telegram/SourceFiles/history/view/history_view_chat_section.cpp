@@ -2682,8 +2682,12 @@ void ChatWidget::edit(
 			|| webpage.url.isEmpty()
 			|| !webpage.manual)
 		&& !hasMediaWithCaption) {
-		if (item->computeSuggestionActions() == SuggestionActions::None) {
-			controller()->show(Box<DeleteMessagesBox>(item));
+		if (item) {
+			if (item->computeSuggestionActions() == SuggestionActions::None) {
+				controller()->show(Box<DeleteMessagesBox>(item, false));
+			}
+		} else {
+			doSetInnerFocus();
 		}
 		return;
 	} else {

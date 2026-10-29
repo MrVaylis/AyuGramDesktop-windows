@@ -1463,7 +1463,9 @@ void ApiWrap::markContentsRead(
 		QVector<MTPint>>();
 	markedIds.reserve(items.size());
 	for (const auto &item : items) {
-		const auto passthrough = (item->isUnreadMention() || item->hasUnreadReaction()) && !item->isUnreadMedia();
+		const auto passthrough = (item->isUnreadMention() || item->hasUnreadReaction())
+			&& !item->isUnreadMedia()
+			&& !item->isTtlCoveredMedia();
 		const auto keepUnread = settings.saveDeletedMessages()
 			&& item->isIncomingUnreadMedia()
 			&& item->media()->ttlSeconds();
@@ -1499,7 +1501,9 @@ void ApiWrap::markContentsRead(
 }
 
 void ApiWrap::markContentsRead(not_null<HistoryItem*> item) {
-	const auto passthrough = (item->isUnreadMention() || item->hasUnreadReaction()) && !item->isUnreadMedia();
+	const auto passthrough = (item->isUnreadMention() || item->hasUnreadReaction())
+		&& !item->isUnreadMedia()
+		&& !item->isTtlCoveredMedia();
 	const auto keepUnread = AyuSettings::getInstance().saveDeletedMessages()
 		&& item->isIncomingUnreadMedia()
 		&& item->media()->ttlSeconds();
@@ -2006,6 +2010,7 @@ void ApiWrap::leaveChannel(not_null<ChannelData*> channel) {
 			channel->inputChannel()
 		)).done([=](const MTPUpdates &result) {
 			_channelAmInRequests.remove(channel);
+			channel->setLeftVoluntarily(true);
 			applyUpdates(result);
 		}).fail([=] {
 			_channelAmInRequests.remove(channel);
@@ -2241,6 +2246,7 @@ void ApiWrap::deleteConversation(not_null<PeerData*> peer, bool revoke) {
 			chat->inputChat(),
 			_session->user()->inputUser()
 		)).done([=](const MTPUpdates &result) {
+			chat->setLeftVoluntarily(true);
 			applyUpdates(result);
 			deleteHistory(peer, false, revoke);
 		}).fail([=] {
@@ -2299,14 +2305,14 @@ void ApiWrap::deleteHistory(
 		deleteTillId = history->lastMessage()->id;
 	}
 	if (const auto channel = peer->asChannel()) {
-		if (!justClear && !revoke) {
+		if (!justClear && !revoke && channel->amIn()) {
 			channel->ptsSetWaitingForShortPoll(-1);
 			leaveChannel(channel);
 		} else {
 			if (const auto migrated = peer->migrateFrom()) {
 				deleteHistory(migrated, justClear, revoke);
 			}
-			if (deleteTillId || (!justClear && revoke)) {
+			if (deleteTillId || (!justClear && revoke) || !channel->amIn()) {
 				history->owner().histories().deleteAllMessages(
 					history,
 					deleteTillId,

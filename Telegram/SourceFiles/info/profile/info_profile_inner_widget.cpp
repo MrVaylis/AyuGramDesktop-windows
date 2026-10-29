@@ -98,6 +98,35 @@ void AddSavedMusic(
 		anim::type::instant);
 }
 
+void AddAboutVerification(
+		not_null<Ui::VerticalLayout*> layout,
+		not_null<PeerData*> peer) {
+	const auto inner = layout->add(object_ptr<Ui::VerticalLayout>(layout));
+	peer->session().changes().peerFlagsValue(
+		peer,
+		Data::PeerUpdate::Flag::VerifyInfo
+	) | rpl::on_next([=] {
+		const auto info = peer->botVerifyDetails();
+		while (inner->count()) {
+			delete inner->widgetAt(0);
+		}
+		if (!info) {
+			Ui::AddDivider(inner);
+		} else {
+			auto hasMainApp = false;
+			if (const auto user = peer->asUser()) {
+				if (user->botInfo) {
+					hasMainApp = user->botInfo->hasMainApp;
+				}
+			}
+			if (!hasMainApp && !info->description.empty()) {
+				Ui::AddDividerText(inner, rpl::single(info->description));
+			}
+		}
+		inner->resizeToWidth(inner->width());
+	}, inner->lifetime());
+}
+
 void AddUnofficialSecurityRiskWarning(
 		not_null<Ui::VerticalLayout*> layout,
 		not_null<UserData*> user) {
@@ -227,6 +256,7 @@ object_ptr<Ui::RpWidget> InnerWidget::setupContent(
 			AddUnofficialSecurityRiskWarning(result.data(), user);
 		}
 	}
+	AddAboutVerification(result.data(), _peer);
 
 	auto stack = SectionStack(result.data());
 	if (_topic && _topic->creating()) {

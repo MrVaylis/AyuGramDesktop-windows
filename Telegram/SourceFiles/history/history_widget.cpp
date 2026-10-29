@@ -4766,7 +4766,24 @@ void HistoryWidget::messagesFailed(const MTP::Error &error, int requestId) {
 		|| error.type() == u"CHANNEL_PUBLIC_GROUP_NA"_q
 		|| error.type() == u"USER_BANNED_IN_CHANNEL"_q) {
 		auto was = _peer;
-		closeCurrent();
+		const auto channel = was->asChannel();
+		if (channel && error.type() == u"USER_BANNED_IN_CHANNEL"_q) {
+			channel->markForbidden();
+		}
+		const auto keep = AyuSettings::getInstance().keepForbiddenChats()
+			&& channel && channel->wasRemoved();
+		if (_preloadRequest == requestId) {
+			_preloadRequest = 0;
+		} else if (_preloadDownRequest == requestId) {
+			_preloadDownRequest = 0;
+		} else if (_firstLoadRequest == requestId) {
+			_firstLoadRequest = 0;
+		} else if (_delayedShowAtRequest == requestId) {
+			_delayedShowAtRequest = 0;
+		}
+		if (!keep) {
+			closeCurrent();
+		}
 		const auto wasAccount = not_null(&was->account());
 		if (const auto primary = Core::App().windowFor(wasAccount)) {
 			primary->showToast(was->isMegagroup()
@@ -5589,7 +5606,7 @@ void HistoryWidget::saveEditMessage(Api::SendOptions options) {
 			|| !webPageDraft.manual)
 		&& !hasMediaWithCaption) {
 		if (item->computeSuggestionActions() == SuggestionActions::None) {
-			controller()->show(Box<DeleteMessagesBox>(item));
+			controller()->show(Box<DeleteMessagesBox>(item, false));
 		}
 		return;
 	} else {
@@ -6858,7 +6875,7 @@ bool HistoryWidget::isBlocked() const {
 
 bool HistoryWidget::isJoinChannel() const {
 	if (const auto channel = _peer ? _peer->asChannel() : nullptr) {
-		return !channel->amIn() && !channel->isMonoforum();
+		return !channel->amIn() && !channel->isMonoforum() && !channel->isForbidden();
 	}
 	return false;
 }

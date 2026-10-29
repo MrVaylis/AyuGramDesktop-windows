@@ -7,6 +7,7 @@ https://github.com/telegramdesktop/tdesktop/blob/master/LEGAL
 */
 #include "history/view/history_view_list_widget.h"
 
+#include "ayu/ayu_settings.h"
 #include "history/view/history_view_about_view.h"
 #include "base/unixtime.h"
 #include "base/qt/qt_key_modifiers.h"
@@ -5859,9 +5860,14 @@ void ListWidget::itemRemoved(not_null<const HistoryItem*> item) {
 		_thanosController->captureOnRemoval(item);
 	}
 
+	const auto savedTop = _visibleTop;
 	saveScrollState();
 	const auto guard = gsl::finally([&] {
 		restoreScrollState();
+		const auto &settings = AyuSettings::getInstance();
+		if (settings.filtersEnabled() && settings.collapseDuplicates()) {
+			_delegate->listScrollTo(savedTop);
+		}
 	});
 
 	const auto view = i->second.get();

@@ -5,31 +5,73 @@
 //
 // Copyright @Radolyn, 2026
 #include "ayu/ayu_settings.h"
+#include "ayu/ayu_ui_settings.h"
 
 #include "lang_auto.h"
 #include "tray.h"
-#include "ayu/ayu_ui_settings.h"
 #include "ayu/ayu_worker.h"
 #include "ayu/features/streamer_mode/streamer_mode.h"
 #include "ayu/ui/ayu_logo.h"
+#include "base/unixtime.h"
 #include "core/application.h"
 #include "features/filters/filters_cache_controller.h"
 #include "features/translator/ayu_translator.h"
+#include "lang_auto.h"
+#include "data/data_channel.h"
+#include "data/data_changes.h"
+#include "data/data_forum.h"
+#include "data/data_forum_topic.h"
+#include "data/data_session.h"
+#include "history/history.h"
+#include "main/main_account.h"
 #include "main/main_domain.h"
 #include "main/main_session.h"
 #include "platform/platform_translate_provider.h"
 #include "rpl/combine.h"
+#include "tray.h"
 #include "window/window_controller.h"
+#include "base/platform/base_platform_file_utilities.h"
 
+#include <algorithm>
 #include <fstream>
+#include <limits>
 #include <QApplication>
+#include <QtCore/QDir>
+#include <QtCore/QFile>
+#include <QtCore/QFileInfo>
 
 using json = nlohmann::json;
 
 namespace {
 
-std::string getSettingsPath() {
-	return (cWorkingDir() + u"tdata/ayu_settings.json"_q).toStdString();
+QString settingsPath() {
+	return cWorkingDir() + u"tdata/ayu_settings.json"_q;
+}
+
+QString settingsBackupPath() {
+	return cWorkingDir() + u"tdata/ayu_settings.json.bak"_q;
+}
+
+QString settingsTempPath() {
+	return cWorkingDir() + u"tdata/ayu_settings.json.tmp"_q;
+}
+
+bool readJsonFromFile(const QString &path, json &out) {
+	QFile file(path);
+	if (!file.open(QIODevice::ReadOnly)) {
+		return false;
+	}
+	const auto data = file.readAll();
+	file.close();
+	if (data.isEmpty()) {
+		return false;
+	}
+	try {
+		out = json::parse(data.constData(), data.constData() + data.size());
+		return true;
+	} catch (...) {
+		return false;
+	}
 }
 
 void repaintApp() {
@@ -39,6 +81,37 @@ void repaintApp() {
 }
 
 rpl::lifetime lifetime; // idk reactivity dies when placed in `GhostModeAccountSettings` as field
+
+constexpr auto kMentionsMutedForever = std::numeric_limits<int>::max();
+
+void refreshMentions(uint64 peerId, bool wasMuted) {
+	if (!Core::IsAppLaunched()) {
+		return;
+	}
+	for (const auto &[index, account] : Core::App().domain().accounts()) {
+		const auto session = account->maybeSession();
+		const auto history = session
+			? session->data().historyLoaded(PeerId(peerId))
+			: nullptr;
+		if (!history) {
+			continue;
+		}
+		if (const auto forum = history->peer->forum()) {
+			forum->enumerateTopics([=](not_null<Data::ForumTopic*> topic) {
+				topic->refreshMentionsMuted(wasMuted);
+				session->changes().topicUpdated(
+					topic,
+					Data::TopicUpdate::Flag::UnreadMentions);
+			});
+		} else {
+			history->refreshMentionsMuted(wasMuted);
+		}
+		session->changes().historyUpdated(
+			history,
+			Data::HistoryUpdate::Flag::UnreadMentions);
+	}
+	repaintApp();
+}
 
 } // namespace
 
@@ -357,6 +430,9 @@ void from_json(const nlohmann::json &j, MessageShotSettings &s) {
 AyuSettings::AyuSettings()
 : _appIcon(AyuAssets::DEFAULT_ICON)
 , _editedMark(Core::IsAppLaunched() ? tr::lng_edited(tr::now) : QString("edited")) {
+	_mentionsMuteTimer = std::make_unique<base::Timer>([] {
+		getInstance().expireMentionsMutes();
+	});
 }
 
 AyuSettings &AyuSettings::getInstance() {
@@ -365,43 +441,53 @@ AyuSettings &AyuSettings::getInstance() {
 }
 
 void AyuSettings::load() {
-	std::ifstream file(getSettingsPath());
-	if (!file.good()) {
+	json p;
+	auto loaded = readJsonFromFile(settingsPath(), p);
+	if (!loaded && QFile::exists(settingsBackupPath())) {
+		loaded = readJsonFromFile(settingsBackupPath(), p);
+	}
+	if (!loaded) {
+		if (cGhost()) {
+			auto &ghost = AyuSettings::ghost();
+			ghost._sendReadMessages = false;
+			ghost._sendReadStories = false;
+			ghost._sendOnlinePackets = false;
+			ghost._sendUploadProgress = false;
+			ghost._sendOfflinePacketAfterOnline = true;
+		}
+
+		getInstance().validate();
+
+		if (getInstance().streamerMode()) {
+			AyuFeatures::StreamerMode::apply(true);
+		}
 		return;
 	}
 
 	auto &settings = getInstance();
 
+	if (!p.contains("ghostModeSettings")) {
+		p["ghostModeSettings"] = nlohmann::json::object({
+			{"0", {
+				{"sendReadMessages", p.value("sendReadMessages", true)},
+				{"sendReadStories", p.value("sendReadStories", true)},
+				{"sendOnlinePackets", p.value("sendOnlinePackets", true)},
+				{"sendUploadProgress", p.value("sendUploadProgress", true)},
+				{"sendOfflinePacketAfterOnline", p.value("sendOfflinePacketAfterOnline", false)},
+				{"markReadAfterAction", p.value("markReadAfterAction", true)},
+				{"useScheduledMessages", p.value("useScheduledMessages", false)},
+				{"sendWithoutSound", p.value("sendWithoutSound", false)}
+			}}
+		});
+		p["useGlobalGhostMode"] = true;
+
+		LOG(("AyuGramSettings: migrated ghost mode settings to per-account format"));
+	}
+
 	try {
-		json p;
-		file >> p;
-		file.close();
-
-		if (!p.contains("ghostModeSettings")) {
-			p["ghostModeSettings"] = nlohmann::json::object({
-				{"0", {
-					{"sendReadMessages", p.value("sendReadMessages", true)},
-					{"sendReadStories", p.value("sendReadStories", true)},
-					{"sendOnlinePackets", p.value("sendOnlinePackets", true)},
-					{"sendUploadProgress", p.value("sendUploadProgress", true)},
-					{"sendOfflinePacketAfterOnline", p.value("sendOfflinePacketAfterOnline", false)},
-					{"markReadAfterAction", p.value("markReadAfterAction", true)},
-					{"useScheduledMessages", p.value("useScheduledMessages", false)},
-					{"sendWithoutSound", p.value("sendWithoutSound", false)}
-				}}
-			});
-			p["useGlobalGhostMode"] = true;
-
-			LOG(("AyuGramSettings: migrated ghost mode settings to per-account format"));
-		}
-
-		try {
-			from_json(p, settings);
-		} catch (...) {
-			LOG(("AyuGramSettings: failed to parse settings file"));
-		}
+		from_json(p, settings);
 	} catch (...) {
-		LOG(("AyuGramSettings: failed to read settings file (not json-like)"));
+		LOG(("AyuGramSettings: failed to parse settings file"));
 	}
 
 	if (cGhost()) {
@@ -414,16 +500,47 @@ void AyuSettings::load() {
 	}
 
 	settings.validate();
+	settings.scheduleMentionsMuteExpiry();
+
+	if (settings.streamerMode()) {
+		AyuFeatures::StreamerMode::apply(true);
+	}
 }
 
 void AyuSettings::save() {
 	auto &settings = getInstance();
 	json p = settings;
+	const auto dumped = p.dump(4);
+	const auto bytes = QByteArray::fromRawData(dumped.data(), dumped.size());
 
-	std::ofstream file;
-	file.open(getSettingsPath());
-	file << p.dump(4);
+	const auto target = settingsPath();
+	const auto backup = settingsBackupPath();
+	const auto temp = settingsTempPath();
+
+	QDir().mkpath(QFileInfo(target).absolutePath());
+
+	QFile file(temp);
+	if (!file.open(QIODevice::WriteOnly)) {
+		return;
+	}
+
+	if (file.write(bytes) != bytes.size()) {
+		file.close();
+		QFile::remove(temp);
+		return;
+	}
+
+	base::Platform::FlushFileData(file);
 	file.close();
+
+	if (QFile::exists(target)) {
+		QFile::remove(backup);
+		QFile::copy(target, backup);
+	}
+
+	if (!base::Platform::RenameWithOverwrite(temp, target)) {
+		QFile::remove(temp);
+	}
 }
 
 void AyuSettings::reset() {
@@ -544,6 +661,18 @@ void AyuSettings::setSaveMessagesHistory(bool val) {
 	save();
 }
 
+void AyuSettings::setStreamerModeEnabled(bool val) {
+	if (_streamerModeEnabled.current() == val) return;
+	_streamerModeEnabled = val;
+	save();
+}
+
+void AyuSettings::setKeepForbiddenChats(bool val) {
+	if (_keepForbiddenChats.current() == val) return;
+	_keepForbiddenChats = val;
+	save();
+}
+
 void AyuSettings::setSaveForBots(bool val) {
 	if (_saveForBots.current() == val) return;
 	_saveForBots = val;
@@ -559,6 +688,28 @@ void AyuSettings::setFiltersEnabled(bool val) {
 void AyuSettings::setFiltersEnabledInChats(bool val) {
 	if (_filtersEnabledInChats.current() == val) return;
 	_filtersEnabledInChats = val;
+	save();
+}
+
+void AyuSettings::setFiltersEnabledInChannels(bool val) {
+	if (_filtersEnabledInChannels.current() == val) return;
+	_filtersEnabledInChannels = val;
+	repaintApp();
+	save();
+}
+
+void AyuSettings::setFiltersEnabledInGroups(bool val) {
+	if (_filtersEnabledInGroups.current() == val) return;
+	_filtersEnabledInGroups = val;
+	_filtersEnabledInChats = val;
+	repaintApp();
+	save();
+}
+
+void AyuSettings::setFiltersEnabledInPrivate(bool val) {
+	if (_filtersEnabledInPrivate.current() == val) return;
+	_filtersEnabledInPrivate = val;
+	repaintApp();
 	save();
 }
 
@@ -1062,10 +1213,128 @@ void AyuSettings::setSingleCornerRadius(bool val) {
 	save();
 }
 
+void AyuSettings::setCollapseDuplicates(bool val) {
+	if (_collapseDuplicates.current() == val) return;
+	_collapseDuplicates = val;
+	FiltersCacheController::fireUpdate();
+	repaintApp();
+	save();
+}
+
+bool AyuSettings::mentionsDisabled(uint64 peerId) const {
+	const auto i = _mentionsSettings.find(peerId);
+	return i != _mentionsSettings.end()
+		&& i->second.mutedUntil > base::unixtime::now();
+}
+
+int AyuSettings::mentionsMuteUntil(uint64 peerId) const {
+	const auto i = _mentionsSettings.find(peerId);
+	return (i != _mentionsSettings.end()) ? i->second.mutedUntil : 0;
+}
+
+uint64 AyuSettings::mentionsSoundId(uint64 peerId) const {
+	const auto i = _mentionsSettings.find(peerId);
+	return (i != _mentionsSettings.end()) ? i->second.soundId : 0;
+}
+
+bool AyuSettings::mentionsSoundDisabled(uint64 peerId) const {
+	const auto i = _mentionsSettings.find(peerId);
+	return (i != _mentionsSettings.end()) && i->second.soundNone;
+}
+
+void AyuSettings::setMentionsSound(uint64 peerId, uint64 soundId, bool none) {
+	auto &settings = _mentionsSettings[peerId];
+	const auto newSoundId = none ? uint64(0) : soundId;
+	if (settings.soundId == newSoundId && settings.soundNone == none) {
+		return;
+	}
+	settings.soundId = newSoundId;
+	settings.soundNone = none;
+	save();
+}
+
+void AyuSettings::setMentionsMutePeriod(uint64 peerId, int period) {
+	const auto until = (period > 0)
+		? int(std::min(
+			int64(kMentionsMutedForever),
+			int64(base::unixtime::now()) + period))
+		: 0;
+	updateMentionsMuteUntil(peerId, until);
+}
+
+void AyuSettings::disableMentionsForever(uint64 peerId) {
+	updateMentionsMuteUntil(peerId, kMentionsMutedForever);
+}
+
+void AyuSettings::enableMentions(uint64 peerId) {
+	updateMentionsMuteUntil(peerId, 0);
+}
+
+void AyuSettings::updateMentionsMuteUntil(uint64 peerId, int until) {
+	if (mentionsMuteUntil(peerId) == until) {
+		return;
+	}
+	const auto wasMuted = mentionsDisabled(peerId);
+	_mentionsSettings[peerId].mutedUntil = until;
+	if (wasMuted != mentionsDisabled(peerId)) {
+		refreshMentions(peerId, wasMuted);
+	}
+	scheduleMentionsMuteExpiry();
+	save();
+}
+
+void AyuSettings::scheduleMentionsMuteExpiry() {
+	_mentionsMuteTimer->cancel();
+	const auto now = base::unixtime::now();
+	auto next = kMentionsMutedForever;
+	for (const auto &[peerId, settings] : _mentionsSettings) {
+		if (settings.mutedUntil > 0
+			&& settings.mutedUntil < kMentionsMutedForever) {
+			next = std::min(next, settings.mutedUntil);
+		}
+	}
+	if (next != kMentionsMutedForever) {
+		_mentionsMuteTimer->callOnce(std::clamp(
+			(int64(next) - now) * 1000,
+			int64(1),
+			int64(24 * 60 * 60 * 1000)));
+	}
+}
+
+void AyuSettings::expireMentionsMutes() {
+	const auto now = base::unixtime::now();
+	auto changed = false;
+	for (auto &[peerId, settings] : _mentionsSettings) {
+		if (settings.mutedUntil > 0
+			&& settings.mutedUntil < kMentionsMutedForever
+			&& settings.mutedUntil <= now) {
+			settings.mutedUntil = 0;
+			refreshMentions(peerId, true);
+			changed = true;
+		}
+	}
+	scheduleMentionsMuteExpiry();
+	if (changed) {
+		save();
+	}
+}
+
 void AyuSettings::setStreamerMode(bool val) {
 	if (_streamerMode.current() == val) return;
 	_streamerMode = val;
 	AyuFeatures::StreamerMode::apply(val);
+	save();
+}
+
+void AyuSettings::setLoadBlockedAvatars(bool val) {
+	if (_loadBlockedAvatars.current() == val) return;
+	_loadBlockedAvatars = val;
+	save();
+}
+
+void AyuSettings::setChannelPromoShown(bool val) {
+	if (_channelPromoShown.current() == val) return;
+	_channelPromoShown = val;
 	save();
 }
 
@@ -1074,17 +1343,32 @@ void to_json(nlohmann::json &j, const AyuSettings &s) {
 	for (const auto &[key, value] : s._ghostAccounts) {
 		ghostAccounts[std::to_string(key)] = *value;
 	}
+	auto mentionsSettings = nlohmann::json::object();
+	for (const auto &[peerId, settings] : s._mentionsSettings) {
+		mentionsSettings[std::to_string(peerId)] = {
+			{"soundId", settings.soundId},
+			{"mutedUntil", settings.mutedUntil},
+			{"soundNone", settings.soundNone},
+		};
+	}
 
 	j = nlohmann::json{
 		{"ghostModeSettings", ghostAccounts},
 		{"useGlobalGhostMode", s._useGlobalGhostMode.current()},
+		{"streamerModeEnabled", s._streamerModeEnabled.current()},
 		{"saveDeletedMessages", s._saveDeletedMessages.current()},
 		{"saveMessagesHistory", s._saveMessagesHistory.current()},
+		{"keepForbiddenChats", s._keepForbiddenChats.current()},
 		{"saveForBots", s._saveForBots.current()},
 		{"shadowBanIds", s._shadowBanIds},
 		{"filtersEnabled", s._filtersEnabled.current()},
 		{"filtersEnabledInChats", s._filtersEnabledInChats.current()},
+		{"filtersEnabledInChannels", s._filtersEnabledInChannels.current()},
+		{"filtersEnabledInGroups", s._filtersEnabledInGroups.current()},
+		{"filtersEnabledInPrivate", s._filtersEnabledInPrivate.current()},
 		{"hideFromBlocked", s._hideFromBlocked.current()},
+		{"collapseDuplicates", s._collapseDuplicates.current()},
+		{"mentionsSettings", mentionsSettings},
 		{"semiTransparentDeletedMessages", s._semiTransparentDeletedMessages.current()},
 		{"disableAds", s._disableAds.current()},
 		{"disableStories", s._disableStories.current()},
@@ -1165,6 +1449,8 @@ void to_json(nlohmann::json &j, const AyuSettings &s) {
 		{"avatarCorners", s._avatarCorners.current()},
 		{"singleCornerRadius", s._singleCornerRadius.current()},
 		{"streamerMode", s._streamerMode.current()},
+		{"loadBlockedAvatars", s._loadBlockedAvatars.current()},
+		{"channelPromoShown", s._channelPromoShown.current()},
 		{"messageShotSettings", s._messageShotSettings}
 	};
 }
@@ -1182,13 +1468,38 @@ void from_json(const nlohmann::json &j, AyuSettings &s) {
 	}
 
 	s._useGlobalGhostMode = j.value("useGlobalGhostMode", defaults._useGlobalGhostMode.current());
+	s._streamerModeEnabled = j.value("streamerModeEnabled", defaults._streamerModeEnabled.current());
 	s._saveDeletedMessages = j.value("saveDeletedMessages", defaults._saveDeletedMessages.current());
 	s._saveMessagesHistory = j.value("saveMessagesHistory", defaults._saveMessagesHistory.current());
+	s._keepForbiddenChats = j.value("keepForbiddenChats", defaults._keepForbiddenChats.current());
 	s._saveForBots = j.value("saveForBots", defaults._saveForBots.current());
 	s._shadowBanIds = j.value("shadowBanIds", defaults._shadowBanIds);
 	s._filtersEnabled = j.value("filtersEnabled", defaults._filtersEnabled.current());
 	s._filtersEnabledInChats = j.value("filtersEnabledInChats", defaults._filtersEnabledInChats.current());
+	s._filtersEnabledInChannels = j.value("filtersEnabledInChannels", defaults._filtersEnabledInChannels.current());
+	s._filtersEnabledInGroups = j.value("filtersEnabledInGroups", s._filtersEnabledInChats.current());
+	s._filtersEnabledInPrivate = j.value("filtersEnabledInPrivate", s._filtersEnabledInChats.current());
 	s._hideFromBlocked = j.value("hideFromBlocked", defaults._hideFromBlocked.current());
+	s._collapseDuplicates = j.value("collapseDuplicates", defaults._collapseDuplicates.current());
+	s._mentionsSettings.clear();
+	if (j.contains("mentionsSettings") && j["mentionsSettings"].is_object()) {
+		for (auto &[key, value] : j["mentionsSettings"].items()) {
+			s._mentionsSettings.emplace(std::stoull(key), MentionsSettings{
+				.soundId = value.value("soundId", uint64(0)),
+				.mutedUntil = value.value("mutedUntil", 0),
+				.soundNone = value.value("soundNone", false),
+			});
+		}
+	} else {
+		const auto disabledMentionsIds = j.value(
+			"disabledMentionsIds",
+			std::unordered_set<uint64>());
+		for (const auto peerId : disabledMentionsIds) {
+			s._mentionsSettings.emplace(peerId, MentionsSettings{
+				.mutedUntil = kMentionsMutedForever,
+			});
+		}
+	}
 	s._semiTransparentDeletedMessages = j.value("semiTransparentDeletedMessages", defaults._semiTransparentDeletedMessages.current());
 	s._disableAds = j.value("disableAds", defaults._disableAds.current());
 	s._disableStories = j.value("disableStories", defaults._disableStories.current());
@@ -1269,6 +1580,8 @@ void from_json(const nlohmann::json &j, AyuSettings &s) {
 	s._avatarCorners = j.value("avatarCorners", defaults._avatarCorners.current());
 	s._singleCornerRadius = j.value("singleCornerRadius", defaults._singleCornerRadius.current());
 	s._streamerMode = j.value("streamerMode", defaults._streamerMode.current());
+	s._loadBlockedAvatars = j.value("loadBlockedAvatars", defaults._loadBlockedAvatars.current());
+	s._channelPromoShown = j.value("channelPromoShown", defaults._channelPromoShown.current());
 
 	if (j.contains("messageShotSettings") && j["messageShotSettings"].is_object()) {
 		j["messageShotSettings"].get_to(s._messageShotSettings);

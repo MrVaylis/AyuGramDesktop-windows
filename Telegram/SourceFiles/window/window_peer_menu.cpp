@@ -261,6 +261,7 @@ void PeerMenuAddMuteSubmenuAction(
 		};
 	};
 	const auto isMuted = notifySettings->isMuted(thread);
+	const auto show = controller->uiShow();
 	if (isMuted) {
 		const auto text = tr::lng_context_unmute(tr::now)
 			+ '\t'
@@ -270,15 +271,35 @@ void PeerMenuAddMuteSubmenuAction(
 			notifySettings->update(thread, { .unmute = true });
 		}), &st::menuIconUnmute);
 	} else {
-		const auto show = controller->uiShow();
 		addAction(PeerMenuCallback::Args{
 			.text = tr::lng_context_mute(tr::now),
 			.handler = nullptr,
 			.icon = (notifySettings->sound(thread).none
 				? &st::menuIconSilent
 				: &st::menuIconMute),
-			.fillSubmenu = [&](not_null<Ui::PopupMenu*> menu) {
+			.fillSubmenu = [=](not_null<Ui::PopupMenu*> menu) {
 				MuteMenu::FillMuteMenu(menu, thread, show);
+			},
+		});
+	}
+
+	const auto peerId = thread->peer()->id.value;
+	const auto &ayuSettings = AyuSettings::getInstance();
+	if (ayuSettings.mentionsDisabled(peerId)) {
+		const auto text = tr::ayu_EnableMentions(tr::now)
+			+ '\t'
+			+ Ui::FormatMuteForTiny(
+				ayuSettings.mentionsMuteUntil(peerId) - base::unixtime::now());
+		addAction(text, with([=](not_null<Data::Thread*>) {
+			AyuSettings::getInstance().enableMentions(peerId);
+		}), &st::menuIconUnmute);
+	} else {
+		addAction(PeerMenuCallback::Args{
+			.text = tr::ayu_DisableMentions(tr::now),
+			.handler = nullptr,
+			.icon = &st::menuIconMute,
+			.fillSubmenu = [=](not_null<Ui::PopupMenu*> menu) {
+				MuteMenu::FillMentionsMenu(menu, thread, show);
 			},
 		});
 	}
@@ -884,11 +905,12 @@ void Filler::addClearHistory() {
 }
 
 void Filler::addDeleteChat() {
-	if (_topic || (!_sublist && _peer->isChannel())) {
+	const auto channel = _peer->asChannel();
+	if (_topic || (!_sublist && channel && channel->amIn())) {
 		return;
 	}
 	_addAction({
-		.text = ((_peer->isUser() || _sublist)
+		.text = ((_peer->isUser() || _sublist || (channel && !channel->amIn()))
 			? tr::lng_profile_delete_conversation(tr::now)
 			: tr::lng_profile_clear_and_exit(tr::now)),
 		.handler = (_sublist

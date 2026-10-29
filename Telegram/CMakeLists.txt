@@ -23,6 +23,9 @@ add_subdirectory(codegen)
 
 # AyuGram filters
 add_subdirectory(lib_icu)
+if (NOT MSVC)
+    target_compile_options(icu_regex_minimal PRIVATE -w)
+endif()
 # AyuGram filters
 
 get_filename_component(src_loc SourceFiles REALPATH)
@@ -123,6 +126,9 @@ set(ayugram_files
         ayu/utils/ayu_mapper.cpp
         ayu/utils/ayu_mapper.h
         ayu/utils/qt_key_modifiers_extended.h
+        ayu/utils/account_info.cpp
+        ayu/utils/account_info.h
+        ayu/utils/registration_model.h
         ayu/utils/telegram_helpers.cpp
         ayu/utils/telegram_helpers.h
         ayu/utils/windows_utils.cpp
@@ -252,6 +258,8 @@ set(ayugram_files
         ayu/data/entities.h
         ayu/data/ayu_database.cpp
         ayu/data/ayu_database.h
+        ayu/features/avatars/ayu_avatar_resolver.cpp
+        ayu/features/avatars/ayu_avatar_resolver.h
 
         info/profile/info_profile_music_button.cpp
         info/profile/info_profile_music_button.h

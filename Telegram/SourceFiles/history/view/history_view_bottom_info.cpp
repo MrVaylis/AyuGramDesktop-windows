@@ -7,6 +7,7 @@ https://github.com/telegramdesktop/tdesktop/blob/master/LEGAL
 */
 #include "history/view/history_view_bottom_info.h"
 
+#include "ayu/features/filters/filters_controller.h"
 #include "ui/chat/message_bubble.h"
 #include "ui/chat/chat_style.h"
 #include "ui/effects/reaction_fly_animation.h"
@@ -41,7 +42,6 @@ https://github.com/telegramdesktop/tdesktop/blob/master/LEGAL
 #include "ayu/features/message_shot/message_shot.h"
 #include "ayu/utils/telegram_helpers.h"
 #include "styles/style_ayu_icons.h"
-
 
 namespace HistoryView {
 namespace {
@@ -500,6 +500,7 @@ void BottomInfo::layoutDateText() {
 		const auto deleted = (_data.flags & Data::Flag::AyuDeleted)
 			? (settings.deletedMark() + ' ')
 			: QString();
+
 		const auto edited = editedPrimary
 			? QString()
 			: updated
@@ -517,7 +518,8 @@ void BottomInfo::layoutDateText() {
 			? FormatEditedDate(_data.date, _data.editedDate)
 			: edited + ((_data.flags & Data::Flag::ForwardedDate)
 			? Ui::FormatDateTimeSavedFrom(_data.date)
-			: formatMessageTime(_data.date.time()));
+			: formatMessageTime(_data.date.time()))
+			+ (_data.repeatCount > 1 ? (" (x" + QString::number(_data.repeatCount) + ")") : QString());
 		const auto afterAuthor = prefix + date;
 		const auto afterAuthorWidth = st::msgDateFont->width(afterAuthor);
 		const auto authorWidth = st::msgDateFont->width(author);
@@ -606,7 +608,8 @@ void BottomInfo::layoutDateText() {
 			? FormatEditedDate(_data.date, _data.editedDate)
 			: (_data.flags & Data::Flag::ForwardedDate)
 			? Ui::FormatDateTimeSavedFrom(_data.date)
-			: formatMessageTime(_data.date.time());
+			: formatMessageTime(_data.date.time())
+			+ (_data.repeatCount > 1 ? (" (x" + QString::number(_data.repeatCount) + ")") : QString());
 
 		const auto date = TextWithEntities{}
 			.append(edited)
@@ -771,13 +774,14 @@ QRect BottomInfo::effectIconGeometry() const {
 		st::effectInfoImage);
 }
 
-BottomInfo::Data BottomInfoDataFromMessage(not_null<Message*> message) {
+struct BottomInfo::Data BottomInfoDataFromMessage(not_null<Message*> message) {
 	using Flag = BottomInfo::Data::Flag;
 	const auto item = message->data();
 
 	auto result = BottomInfo::Data();
 	result.date = message->dateTime();
 	result.effectId = item->effectId();
+	result.repeatCount = FiltersController::countDuplicateGroupSize(item);
 	if (message->hasOutLayout()) {
 		result.flags |= Flag::OutLayout;
 	}

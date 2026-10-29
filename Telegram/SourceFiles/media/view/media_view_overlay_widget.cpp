@@ -138,6 +138,7 @@ https://github.com/telegramdesktop/tdesktop/blob/master/LEGAL
 #include "ayu/ayu_settings.h"
 #include "ayu/ayu_state.h"
 #include "ayu/features/streamer_mode/streamer_mode.h"
+#include "ayu/utils/telegram_helpers.h"
 
 
 namespace Media {
@@ -1387,6 +1388,11 @@ void OverlayWidget::markTimedMediaRead() {
 	if (!item || !item->isTtlCoveredMedia()) {
 		return;
 	} else if (item->isIncomingUnreadMedia()) {
+		const auto &ghost = AyuSettings::ghost(&item->history()->session());
+		if (!ghost.sendReadMessages()) {
+			item->markContentsRead(true);
+			return;
+		}
 		item->history()->session().api().markContentsRead(item);
 	}
 }
@@ -1394,6 +1400,9 @@ void OverlayWidget::markTimedMediaRead() {
 void OverlayWidget::checkSingleViewMediaBurn() {
 	const auto item = _message;
 	if (!item || item->out()) {
+		return;
+	}
+	if (isMessageSavable(item)) {
 		return;
 	}
 	const auto media = item->media();
@@ -3663,7 +3672,7 @@ void OverlayWidget::deleteMedia() {
 					Ui::LayerOption::CloseOther);
 			} else {
 				window->show(
-					Box<DeleteMessagesBox>(message),
+					Box<DeleteMessagesBox>(message, false),
 					Ui::LayerOption::CloseOther);
 			}
 		}
@@ -6093,11 +6102,7 @@ void OverlayWidget::setSystemMediaControls(
 }
 
 bool OverlayWidget::contentNeedsScreenshotProtection() const {
-	if (const auto story = _stories ? _stories->story() : nullptr) {
-		return story->forbidsForward();
-	}
-	return (_history && !_history->peer->allowsForwarding())
-		|| (_message && _message->forbidsSaving());
+	return false;
 }
 
 void OverlayWidget::refreshScreenshotProtection() {

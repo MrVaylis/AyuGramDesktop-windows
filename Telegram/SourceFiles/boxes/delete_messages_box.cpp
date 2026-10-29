@@ -42,9 +42,11 @@ constexpr auto kDeleteMessagesBoxAnimationDuration = crl::time(80);
 
 DeleteMessagesBox::DeleteMessagesBox(
 	QWidget*,
-	not_null<HistoryItem*> item)
+	not_null<HistoryItem*> item,
+	bool suggestModerateActions)
 : _session(&item->history()->session())
 , _ids(1, item->fullId()) {
+
 }
 
 DeleteMessagesBox::DeleteMessagesBox(

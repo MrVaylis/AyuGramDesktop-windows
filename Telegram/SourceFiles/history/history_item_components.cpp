@@ -584,7 +584,7 @@ void HistoryMessageReply::updateData(
 
 	const auto filtered = resolvedMessage &&
 			!resolvedMessage.empty() &&
-			FiltersController::filtered(resolvedMessage.get());
+			FiltersController::isBlockedOrRegexFiltered(resolvedMessage.get());
 
 	const auto displaying = resolvedMessage
 		|| resolvedStory

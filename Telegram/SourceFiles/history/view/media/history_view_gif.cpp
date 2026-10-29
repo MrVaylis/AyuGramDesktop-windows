@@ -1351,9 +1351,11 @@ void Gif::drawCornerStatus(
 		return;
 	}
 	const auto own = activeOwnStreamed();
+	const auto takingShot = AyuFeatures::MessageShot::isTakingShot();
 	const auto download = downloadInCorner()
 		&& !dataLoaded()
-		&& !_data->loadedInMediaCache();
+		&& !_data->loadedInMediaCache()
+		&& !takingShot;
 	PaintVideoCornerStatus(p, context, {
 		.text = ((own && !own->frozenStatusText.isEmpty())
 			? own->frozenStatusText
@@ -1366,8 +1368,7 @@ void Gif::drawCornerStatus(
 			: nullptr),
 		.download = download && !AyuFeatures::MessageShot::isTakingShot(),
 		.loading = _data->loading(),
-		.mute = (_streamed && _data->isVideoFile() && !download
-			&& !AyuFeatures::MessageShot::isTakingShot()),
+		.mute = (_streamed && _data->isVideoFile() && !download && !takingShot),
 	});
 }
 

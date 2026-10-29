@@ -186,12 +186,12 @@ void BuildQoLToggles(SectionBuilder &builder, AyuSectionBuilder &ayu) {
 		.title = tr::ayu_DisableSimilarChannels(),
 		.checkboxes = {
 			NestedEntry{
-				tr::ayu_CollapseSimilarChannels(tr::now),
+				tr::ayu_CollapseSimilarChannels(),
 				[] { return AyuSettings::getInstance().collapseSimilarChannels(); },
 				[](bool v) { AyuSettings::getInstance().setCollapseSimilarChannels(v); }
 			},
 			NestedEntry{
-				tr::ayu_HideSimilarChannelsTab(tr::now),
+				tr::ayu_HideSimilarChannelsTab(),
 				[] { return AyuSettings::getInstance().hideSimilarChannels(); },
 				[](bool v) { AyuSettings::getInstance().setHideSimilarChannels(v); }
 			}
@@ -205,6 +205,14 @@ void BuildQoLToggles(SectionBuilder &builder, AyuSectionBuilder &ayu) {
 		.getter = &AyuSettings::disableNotificationsDelay,
 		.setter = &AyuSettings::setDisableNotificationsDelay,
 	});
+
+	ayu.addSettingToggle({
+		.id = u"ayu/loadBlockedAvatars"_q,
+		.title = tr::ayu_LoadBlockedAvatars(),
+		.getter = &AyuSettings::loadBlockedAvatars,
+		.setter = &AyuSettings::setLoadBlockedAvatars,
+	});
+	builder.addDividerText(tr::ayu_LoadBlockedAvatarsDescription());
 
 	ayu.addSectionDivider();
 
@@ -288,12 +296,12 @@ void BuildQoLToggles(SectionBuilder &builder, AyuSectionBuilder &ayu) {
 		.title = tr::ayu_SettingsBiggerWindow(),
 		.checkboxes = {
 			NestedEntry{
-				tr::ayu_SettingsIncreaseWebviewHeight(tr::now),
+				tr::ayu_SettingsIncreaseWebviewHeight(),
 				[] { return AyuSettings::getInstance().increaseWebviewHeight(); },
 				[](bool v) { AyuSettings::getInstance().setIncreaseWebviewHeight(v); }
 			},
 			NestedEntry{
-				tr::ayu_SettingsIncreaseWebviewWidth(tr::now),
+				tr::ayu_SettingsIncreaseWebviewWidth(),
 				[] { return AyuSettings::getInstance().increaseWebviewWidth(); },
 				[](bool v) { AyuSettings::getInstance().setIncreaseWebviewWidth(v); }
 			}

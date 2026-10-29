@@ -222,6 +222,10 @@ void ChannelData::setFlags(ChannelDataFlags which) {
 		mgInfo->ensureForum(this);
 	}
 	_flags.set(which);
+	if (amIn() && isLoaded()) {
+		_wasIn = true;
+		_leftVoluntarily = false;
+	}
 	if (diff & (Flag::Left | Flag::Forbidden)) {
 		if (const auto chat = getMigrateFromChat()) {
 			session().changes().peerUpdated(chat, UpdateFlag::Migration);
@@ -229,11 +233,15 @@ void ChannelData::setFlags(ChannelDataFlags which) {
 		}
 
 		if (wasIn && !amIn()) {
-			crl::on_main(&session(), [=] {
-				if (!amIn()) {
-					Core::App().closeChatFromWindows(this);
-				}
-			});
+			if (!AyuSettings::getInstance().keepForbiddenChats() || !wasRemoved()) {
+				crl::on_main(&session(), [=] {
+					if (!amIn()
+						&& (!AyuSettings::getInstance().keepForbiddenChats()
+							|| !wasRemoved())) {
+						Core::App().closeChatFromWindows(this);
+					}
+				});
+			}
 		}
 
 		// A membership change in a community member chat moves its history

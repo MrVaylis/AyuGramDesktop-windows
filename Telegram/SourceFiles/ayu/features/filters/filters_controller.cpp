@@ -18,6 +18,7 @@
 #include "history/history.h"
 #include "history/history_item.h"
 #include "history/history_item_components.h"
+#include "history/view/history_view_element.h"
 #include "unicode/regex.h"
 
 #include <memory>
@@ -94,7 +95,19 @@ std::optional<bool> isFiltered(
 
 bool isEnabled(not_null<PeerData*> peer) {
 	const auto &settings = AyuSettings::getInstance();
-	return settings.filtersEnabled() && (settings.filtersEnabledInChats() || peer->isBroadcast());
+	if (!settings.filtersEnabled()) {
+		return false;
+	}
+	if (peer->isBroadcast()) {
+		return settings.filtersEnabledInChannels();
+	}
+	if (peer->isChat() || peer->isMegagroup()) {
+		return settings.filtersEnabledInGroups();
+	}
+	if (peer->isUser()) {
+		return settings.filtersEnabledInPrivate();
+	}
+	return true;
 }
 
 bool isBlocked(const not_null<HistoryItem*> item) {
@@ -149,11 +162,232 @@ bool isBlocked(const not_null<PeerData*> peer) {
 	);
 }
 
-bool filtered(const not_null<HistoryItem*> item) {
-	if (showingFilteredMessages.contains(item->history()->peer->id.value)) {
+namespace {
+
+constexpr auto kDuplicateFastLookupLimit = 200;
+constexpr auto kMaxTrackedDuplicates = 2000;
+
+enum class DuplicateLookupDirection {
+	Previous,
+	Next,
+};
+
+base::flat_set<FullMsgId> notifiedDuplicates;
+base::flat_set<FullMsgId> removingDuplicates;
+
+[[nodiscard]] bool DuplicateCollapsingEnabled(
+		not_null<const HistoryItem*> item) {
+	const auto peer = item->history()->peer;
+	return AyuSettings::getInstance().collapseDuplicates()
+		&& isEnabled(peer)
+		&& !showingFilteredMessages.contains(peer->id.value);
+}
+
+[[nodiscard]] bool IsRemoving(not_null<const HistoryItem*> item) {
+	return removingDuplicates.contains(item->fullId());
+}
+
+[[nodiscard]] bool IsDuplicateCandidate(
+		not_null<const HistoryItem*> item) {
+	return DuplicateCollapsingEnabled(item)
+		&& item->isRegular()
+		&& !IsRemoving(item)
+		&& !item->isService()
+		&& (item->id > 0)
+		&& !item->originalText().text.isEmpty();
+}
+
+[[nodiscard]] bool SameDuplicateContent(
+		not_null<const HistoryItem*> first,
+		not_null<const HistoryItem*> second) {
+	const auto firstForward = first->Get<HistoryMessageForwarded>();
+	const auto secondForward = second->Get<HistoryMessageForwarded>();
+	if ((firstForward != nullptr) != (secondForward != nullptr)) {
 		return false;
 	}
+	if (firstForward
+		&& (!first->originalSender()
+			|| first->originalSender() != second->originalSender()
+			|| first->originalPostAuthor() != second->originalPostAuthor())) {
+		return false;
+	}
+	return first->from() == second->from()
+		&& first->originalText() == second->originalText()
+		&& first->replyTo() == second->replyTo();
+}
 
+[[nodiscard]] HistoryItem *LookupClosestLoadedMessage(
+		not_null<const HistoryItem*> item,
+		DuplicateLookupDirection direction) {
+	auto result = static_cast<HistoryItem*>(nullptr);
+	for (const auto &entry : item->history()->items()) {
+		const auto candidate = entry.get();
+		if (candidate == item.get()
+			|| candidate->id <= 0
+			|| !candidate->isRegular()
+			|| IsRemoving(candidate)
+			|| candidate->isService()) {
+			continue;
+		}
+		if (direction == DuplicateLookupDirection::Previous) {
+			if (candidate->id < item->id
+				&& (!result || candidate->id > result->id)) {
+				result = candidate;
+			}
+		} else if (candidate->id > item->id
+			&& (!result || candidate->id < result->id)) {
+			result = candidate;
+		}
+	}
+	return result;
+}
+
+[[nodiscard]] HistoryItem *LookupAdjacentMessage(
+		not_null<const HistoryItem*> item,
+		DuplicateLookupDirection direction) {
+	if (item->id <= 0) {
+		return nullptr;
+	}
+	const auto peerId = item->history()->peer->id;
+	const auto &owner = item->history()->owner();
+	for (auto offset = 1; offset <= kDuplicateFastLookupLimit; ++offset) {
+		const auto id = (direction == DuplicateLookupDirection::Previous)
+			? (item->id - offset)
+			: (item->id + offset);
+		if (id <= 0) {
+			break;
+		}
+		const auto adjacent = owner.message(peerId, id);
+		if (!adjacent
+			|| !adjacent->isRegular()
+			|| IsRemoving(adjacent)
+			|| adjacent->isService()) {
+			continue;
+		}
+		return adjacent;
+	}
+	return LookupClosestLoadedMessage(item, direction);
+}
+
+void NotifyDuplicateHead(
+		not_null<const HistoryItem*> duplicate,
+		not_null<const HistoryItem*> head) {
+	const auto duplicateId = duplicate->fullId();
+	if (notifiedDuplicates.contains(duplicateId)) {
+		return;
+	}
+	if (notifiedDuplicates.size() >= kMaxTrackedDuplicates) {
+		notifiedDuplicates.clear();
+	}
+	notifiedDuplicates.emplace(duplicateId);
+
+	const auto owner = &head->history()->owner();
+	const auto headId = head->fullId();
+	crl::on_main([=] {
+		if (const auto current = owner->message(headId)) {
+			owner->requestItemViewRefresh(current);
+		}
+	});
+}
+
+} // namespace
+
+const HistoryItem *getDuplicateHead(
+		const not_null<const HistoryItem*> item) {
+	if (!IsDuplicateCandidate(item)) {
+		return nullptr;
+	}
+	const auto previous = LookupAdjacentMessage(
+		item,
+		DuplicateLookupDirection::Previous);
+	if (!previous || !SameDuplicateContent(previous, item)) {
+		return nullptr;
+	}
+
+	auto head = static_cast<const HistoryItem*>(previous);
+	while (const auto earlier = LookupAdjacentMessage(
+			head,
+			DuplicateLookupDirection::Previous)) {
+		if (!SameDuplicateContent(earlier, item)) {
+			break;
+		}
+		head = earlier;
+	}
+	return head;
+}
+
+bool isDuplicateMessage(const not_null<HistoryItem*> item) {
+	const auto head = getDuplicateHead(item);
+	if (!head) {
+		return false;
+	}
+	NotifyDuplicateHead(item, head);
+	return true;
+}
+
+std::vector<not_null<HistoryItem*>> getDuplicateGroup(
+		not_null<HistoryItem*> item) {
+	auto result = std::vector<not_null<HistoryItem*>>();
+	if (!IsDuplicateCandidate(item)) {
+		result.push_back(item);
+		return result;
+	}
+
+	const auto head = getDuplicateHead(item);
+	const auto first = head ? const_cast<HistoryItem*>(head) : item.get();
+	result.push_back(first);
+
+	for (auto next = LookupAdjacentMessage(
+			first,
+			DuplicateLookupDirection::Next);
+		next && SameDuplicateContent(first, next);
+		next = LookupAdjacentMessage(
+			next,
+			DuplicateLookupDirection::Next)) {
+		result.push_back(next);
+	}
+	return result;
+}
+
+int countDuplicateGroupSize(const not_null<HistoryItem*> item) {
+	return static_cast<int>(getDuplicateGroup(item).size());
+}
+
+void handleDuplicateItemRemoved(not_null<const HistoryItem*> item) {
+	const auto itemId = item->fullId();
+	notifiedDuplicates.remove(itemId);
+	if (!item->isRegular() || !DuplicateCollapsingEnabled(item)) {
+		return;
+	}
+
+	removingDuplicates.emplace(itemId);
+	const auto previous = LookupAdjacentMessage(
+		item,
+		DuplicateLookupDirection::Previous);
+	const auto next = LookupAdjacentMessage(
+		item,
+		DuplicateLookupDirection::Next);
+	auto head = static_cast<const HistoryItem*>(nullptr);
+	if (previous && SameDuplicateContent(previous, item)) {
+		head = getDuplicateHead(previous);
+		if (!head) {
+			head = previous;
+		}
+	} else if (next && SameDuplicateContent(next, item)) {
+		head = next;
+	}
+
+	const auto owner = &item->history()->owner();
+	const auto headId = head ? head->fullId() : FullMsgId();
+	crl::on_main([=] {
+		removingDuplicates.remove(itemId);
+		if (const auto current = owner->message(headId)) {
+			owner->requestItemViewRefresh(current);
+		}
+	});
+}
+
+bool isBlockedOrRegexFiltered(const not_null<HistoryItem*> item) {
 	const auto &settings = AyuSettings::getInstance();
 	if (!settings.filtersEnabled()) {
 		return false;
@@ -181,14 +415,30 @@ bool filtered(const not_null<HistoryItem*> item) {
 		getDialogIdFromPeer(item->history()->peer),
 		cache);
 
-	// sometimes item has empty text.
-	// so we cache result only if
-	// processed item is filterable
 	if (res.has_value()) {
 		FiltersCacheController::putFiltered(item, group, res.value(), cache);
 		return res.value();
 	}
 	return false;
+}
+
+bool filtered(const not_null<HistoryItem*> item) {
+	if (showingFilteredMessages.contains(item->history()->peer->id.value)) {
+		return false;
+	}
+
+	const auto &settings = AyuSettings::getInstance();
+	if (!settings.filtersEnabled()) {
+		return false;
+	}
+
+	if (!isEnabled(item->history()->peer)) return false;
+
+	if (isDuplicateMessage(item)) {
+		return true;
+	}
+
+	return isBlockedOrRegexFiltered(item);
 }
 
 std::optional<bool> filteredMessagesShown(not_null<PeerData*> peer) {

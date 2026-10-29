@@ -32,6 +32,7 @@ private:
 	~AyuLanguage() override = default;
 
 	void loadCachedLanguage();
+	void applyBundledLanguage();
 	void saveCachedLanguage(const QByteArray &json, const QString &langId);
 	[[nodiscard]] QString getCacheDir() const;
 	[[nodiscard]] QString getCachePath(const QString &langId) const;

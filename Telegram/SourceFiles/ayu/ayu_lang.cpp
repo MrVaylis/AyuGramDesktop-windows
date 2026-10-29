@@ -51,6 +51,7 @@ void AyuLanguage::init() {
 		}, instance->_lifetime);
 	}
 	instance->loadCachedLanguage();
+	instance->applyBundledLanguage();
 }
 
 AyuLanguage *AyuLanguage::currentInstance() {
@@ -63,6 +64,42 @@ QString AyuLanguage::getCacheDir() const {
 
 QString AyuLanguage::getCachePath(const QString &langId) const {
 	return getCacheDir() + langId + u".json"_q;
+}
+
+void AyuLanguage::applyBundledLanguage() {
+	static const auto translations = [] {
+		auto file = QFile(u":/gui/langs/ayu_local.json"_q);
+		return file.open(QIODevice::ReadOnly)
+			? QJsonDocument::fromJson(file.readAll()).object()
+			: QJsonObject();
+	}();
+	const auto normalize = [](QString id) {
+		id = id.toLower().replace(u'_', u'-');
+		const auto mapping = langMapping.find(id);
+		return mapping != end(langMapping) ? mapping->second : id;
+	};
+	const auto &language = Lang::GetInstance();
+	const auto id = normalize(language.id());
+	const auto baseId = normalize(language.baseId());
+	const auto candidates = {
+		id,
+		baseId,
+		id.section(u'-', 0, 0),
+		baseId.section(u'-', 0, 0),
+		u"en"_q,
+	};
+	for (const auto &candidate : candidates) {
+		const auto values = translations.value(candidate).toObject();
+		if (values.isEmpty()) {
+			continue;
+		}
+		for (auto i = values.begin(); i != values.end(); ++i) {
+			const auto key = (u"ayu_"_q + i.key()).toUtf8();
+			Lang::GetInstance().resetValue(key);
+			Lang::GetInstance().applyValue(key, i.value().toString().toUtf8());
+		}
+		break;
+	}
 }
 
 void AyuLanguage::loadCachedLanguage() {
@@ -125,6 +162,7 @@ void AyuLanguage::saveCachedLanguage(const QByteArray &json, const QString &lang
 }
 
 void AyuLanguage::fetchLanguage(const QString &id, const QString &baseId) {
+	applyBundledLanguage();
 	if (_chkReply) {
 		_chkReply->disconnect();
 		_chkReply->abort();
@@ -243,5 +281,6 @@ void AyuLanguage::applyLanguageJson(QJsonDocument doc) {
 			Lang::GetInstance().applyValue("ayu_LocalTelegramPremium", val.toUtf8());
 		}
 	}
+	applyBundledLanguage();
 	Lang::GetInstance().updatePluralRules();
 }

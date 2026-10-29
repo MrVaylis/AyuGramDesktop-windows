@@ -1,0 +1,110 @@
+{
+  "ar": {
+    "CopyWithEmojiId": "نسخ مع معرّفات الإيموجي",
+    "CopyEmojiId": "نسخ معرّف الإيموجي"
+  },
+  "be": {
+    "CopyWithEmojiId": "Капіяваць з ID эмодзі",
+    "CopyEmojiId": "Капіяваць ID эмодзі"
+  },
+  "de": {
+    "CopyWithEmojiId": "Mit Emoji-IDs kopieren",
+    "CopyEmojiId": "Emoji-ID kopieren"
+  },
+  "el": {
+    "CopyWithEmojiId": "Αντιγραφή με αναγνωριστικά emoji",
+    "CopyEmojiId": "Αντιγραφή αναγνωριστικού emoji"
+  },
+  "en": {
+    "CopyWithEmojiId": "Copy with emoji IDs",
+    "CopyEmojiId": "Copy emoji ID"
+  },
+  "eo": {
+    "CopyWithEmojiId": "Kopii kun identigiloj de emoĝioj",
+    "CopyEmojiId": "Kopii identigilon de emoĝio"
+  },
+  "es": {
+    "CopyWithEmojiId": "Copiar con IDs de emojis",
+    "CopyEmojiId": "Copiar ID del emoji"
+  },
+  "fa": {
+    "CopyWithEmojiId": "کپی با شناسه‌های ایموجی",
+    "CopyEmojiId": "کپی شناسهٔ ایموجی"
+  },
+  "fi": {
+    "CopyWithEmojiId": "Kopioi emojitunnuksilla",
+    "CopyEmojiId": "Kopioi emojin tunnus"
+  },
+  "fr": {
+    "CopyWithEmojiId": "Copier avec les identifiants des emojis",
+    "CopyEmojiId": "Copier l’identifiant de l’emoji"
+  },
+  "he": {
+    "CopyWithEmojiId": "העתקה עם מזהי אימוג׳י",
+    "CopyEmojiId": "העתקת מזהה האימוג׳י"
+  },
+  "it": {
+    "CopyWithEmojiId": "Copia con gli ID delle emoji",
+    "CopyEmojiId": "Copia ID dell’emoji"
+  },
+  "ja": {
+    "CopyWithEmojiId": "絵文字をIDに置き換えてコピー",
+    "CopyEmojiId": "絵文字IDをコピー"
+  },
+  "ko": {
+    "CopyWithEmojiId": "이모지를 ID로 바꿔 복사",
+    "CopyEmojiId": "이모지 ID 복사"
+  },
+  "lv": {
+    "CopyWithEmojiId": "Kopēt ar emocijzīmju ID",
+    "CopyEmojiId": "Kopēt emocijzīmes ID"
+  },
+  "nl": {
+    "CopyWithEmojiId": "Kopiëren met emoji-ID’s",
+    "CopyEmojiId": "Emoji-ID kopiëren"
+  },
+  "os": {
+    "CopyWithEmojiId": "Эмодзийы ID-тимæ копи кæнын",
+    "CopyEmojiId": "Эмодзийы ID копи кæнын"
+  },
+  "pl": {
+    "CopyWithEmojiId": "Kopiuj z identyfikatorami emoji",
+    "CopyEmojiId": "Kopiuj identyfikator emoji"
+  },
+  "pt": {
+    "CopyWithEmojiId": "Copiar com IDs de emojis",
+    "CopyEmojiId": "Copiar ID do emoji"
+  },
+  "ro": {
+    "CopyWithEmojiId": "Copiază cu ID-urile emojiurilor",
+    "CopyEmojiId": "Copiază ID-ul emojiului"
+  },
+  "ru": {
+    "CopyWithEmojiId": "Копировать с emoji ID",
+    "CopyEmojiId": "Копировать emoji ID"
+  },
+  "tr": {
+    "CopyWithEmojiId": "Emoji kimlikleriyle kopyala",
+    "CopyEmojiId": "Emoji kimliğini kopyala"
+  },
+  "uk": {
+    "CopyWithEmojiId": "Копіювати з ID емодзі",
+    "CopyEmojiId": "Копіювати ID емодзі"
+  },
+  "vi": {
+    "CopyWithEmojiId": "Sao chép với ID emoji",
+    "CopyEmojiId": "Sao chép ID emoji"
+  },
+  "zh": {
+    "CopyWithEmojiId": "将表情替换为 ID 后复制",
+    "CopyEmojiId": "复制表情 ID"
+  },
+  "zh-hans": {
+    "CopyWithEmojiId": "将表情替换为 ID 后复制",
+    "CopyEmojiId": "复制表情 ID"
+  },
+  "zh-hant": {
+    "CopyWithEmojiId": "將表情替換為 ID 後複製",
+    "CopyEmojiId": "複製表情 ID"
+  }
+}

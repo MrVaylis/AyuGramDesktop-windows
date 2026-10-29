@@ -4,7 +4,8 @@
 
 The single `.github/workflows/windows.yml` workflow builds Windows x64 with
 static Qt 6, MSVC 14.44 and Windows SDK 10.0.26100.0 on `windows-2022`.
-It runs the emoji ID and release validation tests before preparing dependencies.
+It runs the emoji ID, preparation and release validation tests before preparing
+Release-only dependencies with `skip-debug`.
 Dependency caches include the preparation scripts and exact compiler, SDK and
 Python versions in their key. Desktop object files are rebuilt from the checked
 out source, including the pinned `lib_ui` patch.

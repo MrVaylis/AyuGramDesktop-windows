@@ -819,43 +819,83 @@ HistoryWidget::HistoryWidget(
 		item->mainView()->itemDataChanged();
 	}, lifetime());
 
-	rpl::merge(
-		session().changes().peerUpdates(
-			Data::PeerUpdate::Flag::IsBlocked
-		) | rpl::to_empty,
-		FiltersCacheController::updates()
-	) | rpl::on_next(
-		[=]
-		{
-			crl::on_main(
-				this,
-				[=]
-				{
-					if (_history) {
-						_history->forceFullResize();
-						if (_migrated) {
-							_migrated->forceFullResize();
-						}
-						updateHistoryGeometry();
-						update();
+	// Re-laying out the whole history costs tens of ms with many messages
+	// loaded, and blocked statuses change in bulk: the whole blocked list
+	// at start, and a status becoming known whenever full user info loads.
+	// Mostly for people with nothing here, so check that first, and fold
+	// a burst into a single pass.
+	const auto refreshQueued = std::make_shared<bool>(false);
+	const auto refreshFiltered = [=] {
+		if (*refreshQueued) {
+			return;
+		}
+		*refreshQueued = true;
+		crl::on_main(
+			this,
+			[=]
+			{
+				*refreshQueued = false;
+				if (_history) {
+					_history->forceFullResize();
+					if (_migrated) {
+						_migrated->forceFullResize();
+					}
+					updateHistoryGeometry();
+					update();
 
-						for (const auto &item : _history->blocks) {
-							if (!item) {
+					for (const auto &item : _history->blocks) {
+						if (!item) {
+							continue;
+						}
+						for (const auto &msg : item->messages) {
+							if (!msg) {
 								continue;
 							}
-							for (const auto &msg : item->messages) {
-								if (!msg) {
-									continue;
-								}
 
-								_history->owner().requestViewResize(msg.get());
-								_history->owner().requestItemViewRefresh(msg->data());
-							}
+							_history->owner().requestViewResize(msg.get());
+							_history->owner().requestItemViewRefresh(msg->data());
 						}
 					}
-				});
-		},
-		lifetime());
+				}
+			});
+	};
+	const auto hasMessagesFrom = [=](not_null<PeerData*> peer) {
+		const auto &settings = AyuSettings::getInstance();
+		if (!_history
+			|| !settings.filtersEnabled()
+			|| !settings.hideFromBlocked()) {
+			return false;
+		}
+		const auto check = [&](not_null<History*> history) {
+			for (const auto &block : history->blocks) {
+				if (!block) {
+					continue;
+				}
+				for (const auto &view : block->messages) {
+					if (!view) {
+						continue;
+					}
+					const auto item = view->data();
+					if (item->from() == peer) {
+						return true;
+					}
+					const auto forwarded = item->Get<HistoryMessageForwarded>();
+					if (forwarded && forwarded->originalSender == peer.get()) {
+						return true;
+					}
+				}
+			}
+			return false;
+		};
+		return check(_history) || (_migrated && check(_migrated));
+	};
+	session().changes().peerUpdates(
+		Data::PeerUpdate::Flag::IsBlocked
+	) | rpl::filter([=](const Data::PeerUpdate &update) {
+		return hasMessagesFrom(update.peer);
+	}) | rpl::to_empty | rpl::on_next(refreshFiltered, lifetime());
+	FiltersCacheController::updates(
+	) | rpl::on_next(refreshFiltered, lifetime());
 
 	Core::App().settings().largeEmojiChanges(
 	) | rpl::on_next([=] {
@@ -1239,6 +1279,21 @@ HistoryWidget::HistoryWidget(
 	_topBar->forwardSelectionRequest(
 	) | rpl::on_next([=] {
 		forwardSelected();
+	}, _topBar->lifetime());
+	_topBar->forwardWithoutSourceSelectionRequest(
+	) | rpl::on_next([=] {
+		if (!_list) {
+			return;
+		}
+		const auto weak = base::make_weak(this);
+		Data::ForwardDraft draft;
+		draft.ids = getSelectedItems();
+		draft.options = Data::ForwardOptions::NoSenderNames;
+		Window::ShowForwardMessagesBox(this->controller(), std::move(draft), [=] {
+			if (const auto strong = weak.get()) {
+				strong->clearSelected();
+			}
+		});
 	}, _topBar->lifetime());
 	_topBar->deleteSelectionRequest(
 	) | rpl::on_next([=] {
@@ -4950,7 +5005,24 @@ void HistoryWidget::messagesFailed(const MTP::Error &error, int requestId) {
 		|| error.type() == u"CHANNEL_PUBLIC_GROUP_NA"_q
 		|| error.type() == u"USER_BANNED_IN_CHANNEL"_q) {
 		auto was = _peer;
-		closeCurrent();
+		const auto channel = was->asChannel();
+		if (channel && error.type() == u"USER_BANNED_IN_CHANNEL"_q) {
+			channel->markForbidden();
+		}
+		const auto keep = AyuSettings::getInstance().keepForbiddenChats()
+			&& channel && channel->wasRemoved();
+		if (_preloadRequest == requestId) {
+			_preloadRequest = 0;
+		} else if (_preloadDownRequest == requestId) {
+			_preloadDownRequest = 0;
+		} else if (_firstLoadRequest == requestId) {
+			_firstLoadRequest = 0;
+		} else if (_delayedShowAtRequest == requestId) {
+			_delayedShowAtRequest = 0;
+		}
+		if (!keep) {
+			closeCurrent();
+		}
 		const auto wasAccount = not_null(&was->account());
 		if (const auto primary = Core::App().windowFor(wasAccount)) {
 			primary->showToast(was->isMegagroup()
@@ -5773,7 +5845,7 @@ void HistoryWidget::saveEditMessage(Api::SendOptions options) {
 			|| !webPageDraft.manual)
 		&& !hasMediaWithCaption) {
 		if (item->computeSuggestionActions() == SuggestionActions::None) {
-			controller()->show(Box<DeleteMessagesBox>(item));
+			controller()->show(Box<DeleteMessagesBox>(item, false));
 		}
 		return;
 	} else {
@@ -7070,7 +7142,7 @@ bool HistoryWidget::isBlocked() const {
 
 bool HistoryWidget::isJoinChannel() const {
 	if (const auto channel = _peer ? _peer->asChannel() : nullptr) {
-		return !channel->amIn() && !channel->isMonoforum();
+		return !channel->amIn() && !channel->isMonoforum() && !channel->isForbidden();
 	}
 	return false;
 }

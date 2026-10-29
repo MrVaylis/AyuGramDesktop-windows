@@ -7,6 +7,7 @@ https://github.com/telegramdesktop/tdesktop/blob/master/LEGAL
 */
 #include "history/view/history_view_list_widget.h"
 
+#include "ayu/ayu_settings.h"
 #include "history/view/history_view_about_view.h"
 #include "base/unixtime.h"
 #include "base/qt/qt_key_modifiers.h"
@@ -107,6 +108,7 @@ https://github.com/telegramdesktop/tdesktop/blob/master/LEGAL
 #include <QtCore/QMimeData>
 
 // AyuGram includes
+#include "ayu/ayu_settings.h"
 #include "ayu/features/filters/filters_cache_controller.h"
 #include "ayu/utils/telegram_helpers.h"
 
@@ -120,6 +122,7 @@ constexpr auto kPreloadedScreensCountFull
 	= kPreloadedScreensCount + 1 + kPreloadedScreensCount;
 constexpr auto kClearUserpicsAfter = 50;
 constexpr auto kScrollDateHideOnDayCrossingTimeout = crl::time(3000);
+constexpr auto kDownloadedContentRepaintDelay = crl::time(120);
 
 [[nodiscard]] std::unique_ptr<TranslateTracker> MaybeTranslateTracker(
 		History *history) {
@@ -622,6 +625,11 @@ ListWidget::ListWidget(
 		}, lifetime());
 	}
 
+	_downloadedContentRepaintTimer.setCallback([this] {
+		if (base::take(_downloadedContentRepaintPending)) {
+			update();
+		}
+	});
 	_session->data().viewRepaintRequest(
 	) | rpl::on_next([this](Data::RequestViewRepaint data) {
 		if (data.view->delegate() == this) {
@@ -666,13 +674,16 @@ ListWidget::ListWidget(
 		}
 	}, lifetime());
 
-	rpl::merge(
-		_session->changes().peerUpdates(
-			Data::PeerUpdate::Flag::IsBlocked
-		) | rpl::to_empty,
-		FiltersCacheController::updates()
-	) | rpl::on_next([=] {
+	// Same as in HistoryWidget: blocked statuses change in bulk, mostly for
+	// people with no messages here, and each pass re-lays out every row.
+	const auto refreshQueued = std::make_shared<bool>(false);
+	const auto refreshFiltered = [=] {
+		if (*refreshQueued) {
+			return;
+		}
+		*refreshQueued = true;
 		crl::on_main(this, [=] {
+			*refreshQueued = false;
 			if (_viewsCapacity.empty()) {
 				for (const auto &view : _items) {
 					view->setPendingResize();
@@ -681,11 +692,32 @@ ListWidget::ListWidget(
 				refreshRows(old);
 			}
 		});
-	}, lifetime());
+	};
+	_session->changes().peerUpdates(
+		Data::PeerUpdate::Flag::IsBlocked
+	) | rpl::filter([=](const Data::PeerUpdate &update) {
+		const auto &settings = AyuSettings::getInstance();
+		if (!settings.filtersEnabled() || !settings.hideFromBlocked()) {
+			return false;
+		}
+		const auto peer = update.peer.get();
+		return ranges::any_of(_items, [&](not_null<Element*> view) {
+			const auto item = view->data();
+			const auto forwarded = item->Get<HistoryMessageForwarded>();
+			return (item->from().get() == peer)
+				|| (forwarded && forwarded->originalSender == peer);
+		});
+	}) | rpl::to_empty | rpl::on_next(refreshFiltered, lifetime());
+	FiltersCacheController::updates(
+	) | rpl::on_next(refreshFiltered, lifetime());
 
 	_session->downloaderTaskFinished(
 	) | rpl::on_next([=] {
-		update();
+		if (_downloadedContentRepaintTimer.isActive()) {
+			_downloadedContentRepaintPending = true;
+		} else {
+			update();
+		}
 	}, lifetime());
 
 	_session->data().peerDecorationsUpdated(
@@ -1537,9 +1569,14 @@ void ListWidget::visibleTopBottomUpdated(
 	}
 
 	const auto initializing = !(_visibleTop < _visibleBottom);
+	const auto scrolled = !initializing && (visibleTop != _visibleTop);
 	const auto scrolledUp = (visibleTop < _visibleTop);
 	_visibleTop = visibleTop;
 	_visibleBottom = visibleBottom;
+	if (scrolled) {
+		_downloadedContentRepaintTimer.callOnce(
+			kDownloadedContentRepaintDelay);
+	}
 	markReadMetricsStale();
 	registerReadMetricsActivity();
 
@@ -3128,6 +3165,14 @@ void ListWidget::paintEvent(QPaintEvent *e) {
 
 	auto clip = e->rect();
 
+	// e->rect() is the region's bounding rect and can span far more than
+	// needs drawing. The bookkeeping below still runs for every item, it
+	// drives read receipts.
+	const auto region = e->region();
+	const auto needsDraw = [&](int top, int height) {
+		return region.intersects(QRect(0, top, width(), height));
+	};
+
 	auto collapseGapTotal = 0;
 	for (const auto &gap : collapseGaps()) {
 		collapseGapTotal += gap.height;
@@ -3214,7 +3259,9 @@ void ListWidget::paintEvent(QPaintEvent *e) {
 			context.fullMessageSelected = selection.fullMessageSelected;
 			context.messageSelection = selection.messageSelection;
 			context.highlight = _highlighter.state(item);
-			view->draw(p, context);
+			if (needsDraw(top, height)) {
+				view->draw(p, context);
+			}
 		}
 		if (_translateTracker) {
 			_translateTracker->add(view);
@@ -5948,9 +5995,14 @@ void ListWidget::itemRemoved(not_null<const HistoryItem*> item) {
 		_thanosController->captureOnRemoval(item);
 	}
 
+	const auto savedTop = _visibleTop;
 	saveScrollState();
 	const auto guard = gsl::finally([&] {
 		restoreScrollState();
+		const auto &settings = AyuSettings::getInstance();
+		if (settings.filtersEnabled() && settings.collapseDuplicates()) {
+			_delegate->listScrollTo(savedTop);
+		}
 	});
 
 	const auto view = i->second.get();

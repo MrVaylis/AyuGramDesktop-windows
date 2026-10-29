@@ -141,6 +141,7 @@ https://github.com/telegramdesktop/tdesktop/blob/master/LEGAL
 #include "ayu/ayu_settings.h"
 #include "ayu/ayu_state.h"
 #include "ayu/features/streamer_mode/streamer_mode.h"
+#include "ayu/utils/telegram_helpers.h"
 
 
 namespace Media {
@@ -663,8 +664,18 @@ OverlayWidget::PipWrap::PipWrap(
 	std::move(destroy)) {
 }
 
+// On Windows a translucent QRhi window gets per-pixel alpha only through
+// DirectComposition, over a redirection surface that shows through as DWM
+// glass, and with QRhi enabled the OpenGL probe reports nothing, leaving
+// only the CPU renderer. The background is nearly opaque anyway.
+[[nodiscard]] std::unique_ptr<Ui::GL::Window> CreateOverlayWindow() {
+	return ::Platform::IsWindows()
+		? std::make_unique<Ui::GL::Window>()
+		: std::make_unique<Ui::GL::Window>(Ui::GL::Window::Translucent::Yes);
+}
+
 OverlayWidget::OverlayWidget()
-: _wrap(std::make_unique<Ui::GL::Window>(Ui::GL::Window::Translucent::Yes))
+: _wrap(CreateOverlayWindow())
 , _window(_wrap->window())
 , _helper(Platform::CreateOverlayWidgetHelper(_window.get(), [=](bool maximized) {
 	toggleFullScreen(maximized);
@@ -1088,7 +1099,9 @@ void OverlayWidget::setupWindow() {
 	});
 
 	_window->setAttribute(Qt::WA_NoSystemBackground, true);
-	_window->setAttribute(Qt::WA_TranslucentBackground, true);
+	if (!::Platform::IsWindows()) {
+		_window->setAttribute(Qt::WA_TranslucentBackground, true);
+	}
 
 	// System maximize means full screen here, system restore leaves it.
 	_window->systemCommandRequests(
@@ -1421,6 +1434,11 @@ void OverlayWidget::markTimedMediaRead() {
 	if (!item || !item->isTtlCoveredMedia()) {
 		return;
 	} else if (item->isIncomingUnreadMedia()) {
+		const auto &ghost = AyuSettings::ghost(&item->history()->session());
+		if (!ghost.sendReadMessages()) {
+			item->markContentsRead(true);
+			return;
+		}
 		item->history()->session().api().markContentsRead(item);
 	}
 }
@@ -1428,6 +1446,9 @@ void OverlayWidget::markTimedMediaRead() {
 void OverlayWidget::checkSingleViewMediaBurn() {
 	const auto item = _message;
 	if (!item || item->out()) {
+		return;
+	}
+	if (isMessageSavable(item)) {
 		return;
 	}
 	const auto media = item->media();
@@ -3727,7 +3748,7 @@ void OverlayWidget::deleteMedia() {
 					Ui::LayerOption::CloseOther);
 			} else {
 				window->show(
-					Box<DeleteMessagesBox>(message),
+					Box<DeleteMessagesBox>(message, false),
 					Ui::LayerOption::CloseOther);
 			}
 		}
@@ -6162,11 +6183,7 @@ void OverlayWidget::setSystemMediaControls(
 }
 
 bool OverlayWidget::contentNeedsScreenshotProtection() const {
-	if (const auto story = _stories ? _stories->story() : nullptr) {
-		return story->forbidsForward();
-	}
-	return (_history && !_history->peer->allowsForwarding())
-		|| (_message && _message->forbidsSaving());
+	return false;
 }
 
 void OverlayWidget::refreshScreenshotProtection() {

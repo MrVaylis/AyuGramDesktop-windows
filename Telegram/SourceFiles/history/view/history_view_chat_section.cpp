@@ -512,6 +512,21 @@ ChatWidget::ChatWidget(
 	) | rpl::on_next([=] {
 		confirmForwardSelected();
 	}, _topBar->lifetime());
+	_topBar->forwardWithoutSourceSelectionRequest(
+	) | rpl::on_next([=] {
+		if (!_inner) {
+			return;
+		}
+		const auto weak = base::make_weak(_inner.data());
+		Data::ForwardDraft draft;
+		draft.ids = _inner->getSelectedIds();
+		draft.options = Data::ForwardOptions::NoSenderNames;
+		Window::ShowForwardMessagesBox(_inner->controller(), std::move(draft), [=] {
+			if (const auto strong = weak.get()) {
+				strong->cancelSelection();
+			}
+		});
+	}, _topBar->lifetime());
 	_topBar->clearSelectionRequest(
 	) | rpl::on_next([=] {
 		clearSelected();
@@ -2743,8 +2758,12 @@ void ChatWidget::edit(
 			|| webpage.url.isEmpty()
 			|| !webpage.manual)
 		&& !hasMediaWithCaption) {
-		if (item->computeSuggestionActions() == SuggestionActions::None) {
-			controller()->show(Box<DeleteMessagesBox>(item));
+		if (item) {
+			if (item->computeSuggestionActions() == SuggestionActions::None) {
+				controller()->show(Box<DeleteMessagesBox>(item, false));
+			}
+		} else {
+			doSetInnerFocus();
 		}
 		return;
 	} else {

@@ -299,6 +299,7 @@ void Cover::initViewers() {
 		updateIdText();
 	}, lifetime());
 
+
 	Info::Profile::UsernameValue(
 		_user
 	) | rpl::on_next([=](const TextWithEntities &value) {

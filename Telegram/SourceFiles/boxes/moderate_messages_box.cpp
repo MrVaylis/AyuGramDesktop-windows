@@ -1640,7 +1640,7 @@ void DeleteChatBox(
 			container,
 			peer->isSelf()
 				? tr::lng_saved_messages(tr::bold)
-				: maybeUser
+				: (maybeUser || (peer->isChannel() && !peer->asChannel()->amIn()))
 				? tr::lng_profile_delete_conversation(tr::bold)
 				: rpl::single(
 					tr::bold(userpicPeer->name())
@@ -1655,7 +1655,7 @@ void DeleteChatBox(
 			container,
 			peer->isSelf()
 				? tr::lng_sure_delete_saved_messages()
-				: maybeUser
+				: (maybeUser || (peer->isChannel() && !peer->asChannel()->amIn()))
 				? tr::lng_sure_delete_history(
 					lt_contact,
 					rpl::single(peer->name()))

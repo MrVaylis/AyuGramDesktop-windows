@@ -63,7 +63,6 @@ https://github.com/telegramdesktop/tdesktop/blob/master/LEGAL
 #include "ayu/ayu_settings.h"
 #include "styles/style_ayu_styles.h"
 
-
 namespace Ui::BotWebView {
 
 namespace {

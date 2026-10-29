@@ -317,6 +317,7 @@ QString AddOption(
 			}));
 		});
 	}
+
 	if (referrer.isEmpty()) {
 		button->toggledChanges(
 		) | rpl::on_next([=, &option](bool toggled) {

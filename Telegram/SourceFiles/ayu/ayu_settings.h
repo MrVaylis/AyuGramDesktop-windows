@@ -8,13 +8,15 @@
 
 #include "ayu/libs/json.hpp"
 #include "ayu/libs/json_ext.hpp"
+#include "base/timer.h"
 #include "rpl/lifetime.h"
 #include "rpl/producer.h"
 #include "rpl/variable.h"
 
 #include <map>
+#include <memory>
+#include <unordered_map>
 #include <unordered_set>
-
 
 namespace Main {
 class Session;
@@ -49,6 +51,12 @@ enum class SendWithoutSoundOption {
 	Never = 0,
 	InGhostMode = 1,
 	Always = 2,
+};
+
+struct MentionsSettings {
+	uint64 soundId = 0;
+	int mutedUntil = 0;
+	bool soundNone = false;
 };
 
 NLOHMANN_JSON_SERIALIZE_ENUM(PeerIdDisplay, {
@@ -267,12 +275,34 @@ public:
 
 	void validate();
 
+	[[nodiscard]] bool streamerModeEnabled() const { return _streamerModeEnabled.current(); }
+	void setStreamerModeEnabled(bool val);
+
 	[[nodiscard]] bool saveDeletedMessages() const { return _saveDeletedMessages.current(); }
 	[[nodiscard]] bool saveMessagesHistory() const { return _saveMessagesHistory.current(); }
+	[[nodiscard]] bool keepForbiddenChats() const { return _keepForbiddenChats.current(); }
+	void setKeepForbiddenChats(bool val);
 	[[nodiscard]] bool saveForBots() const { return _saveForBots.current(); }
+	[[nodiscard]] bool excludeBotsInGroups() const { return _excludeBotsInGroups.current(); }
 	[[nodiscard]] bool filtersEnabled() const { return _filtersEnabled.current(); }
 	[[nodiscard]] bool filtersEnabledInChats() const { return _filtersEnabledInChats.current(); }
+	[[nodiscard]] bool filtersEnabledInChannels() const { return _filtersEnabledInChannels.current(); }
+	void setFiltersEnabledInChannels(bool val);
+	[[nodiscard]] bool filtersEnabledInGroups() const { return _filtersEnabledInGroups.current(); }
+	void setFiltersEnabledInGroups(bool val);
+	[[nodiscard]] bool filtersEnabledInPrivate() const { return _filtersEnabledInPrivate.current(); }
+	void setFiltersEnabledInPrivate(bool val);
 	[[nodiscard]] bool hideFromBlocked() const { return _hideFromBlocked.current(); }
+	[[nodiscard]] bool collapseDuplicates() const { return _collapseDuplicates.current(); }
+	void setCollapseDuplicates(bool val);
+	[[nodiscard]] bool mentionsDisabled(uint64 peerId) const;
+	[[nodiscard]] int mentionsMuteUntil(uint64 peerId) const;
+	[[nodiscard]] uint64 mentionsSoundId(uint64 peerId) const;
+	[[nodiscard]] bool mentionsSoundDisabled(uint64 peerId) const;
+	void setMentionsSound(uint64 peerId, uint64 soundId, bool none);
+	void setMentionsMutePeriod(uint64 peerId, int period);
+	void disableMentionsForever(uint64 peerId);
+	void enableMentions(uint64 peerId);
 	[[nodiscard]] bool semiTransparentDeletedMessages() const { return _semiTransparentDeletedMessages.current(); }
 	[[nodiscard]] bool disableAds() const { return _disableAds.current(); }
 	[[nodiscard]] bool disableStories() const { return _disableStories.current(); }
@@ -353,10 +383,15 @@ public:
 	[[nodiscard]] int avatarCorners() const { return _avatarCorners.current(); }
 	[[nodiscard]] bool singleCornerRadius() const { return _singleCornerRadius.current(); }
 	[[nodiscard]] bool streamerMode() const { return _streamerMode.current(); }
+	[[nodiscard]] bool loadBlockedAvatars() const { return _loadBlockedAvatars.current(); }
+	[[nodiscard]] bool channelPromoShown() const { return _channelPromoShown.current(); }
+	[[nodiscard]] bool downloadBoost() const { return _downloadBoost.current(); }
+	[[nodiscard]] bool uploadBoost() const { return _uploadBoost.current(); }
 
 	void setSaveDeletedMessages(bool val);
 	void setSaveMessagesHistory(bool val);
 	void setSaveForBots(bool val);
+	void setExcludeBotsInGroups(bool val);
 	void setFiltersEnabled(bool val);
 	void setFiltersEnabledInChats(bool val);
 	void setHideFromBlocked(bool val);
@@ -440,6 +475,10 @@ public:
 	void setAvatarCorners(int val);
 	void setSingleCornerRadius(bool val);
 	void setStreamerMode(bool val);
+	void setLoadBlockedAvatars(bool val);
+	void setChannelPromoShown(bool val);
+	void setDownloadBoost(bool val);
+	void setUploadBoost(bool val);
 
 	[[nodiscard]] rpl::producer<bool> useGlobalGhostModeValue() const { return _useGlobalGhostMode.value(); }
 	[[nodiscard]] rpl::producer<bool> useGlobalGhostModeChanges() const { return _useGlobalGhostMode.changes(); }
@@ -447,8 +486,12 @@ public:
 	[[nodiscard]] rpl::producer<bool> saveDeletedMessagesChanges() const { return _saveDeletedMessages.changes(); }
 	[[nodiscard]] rpl::producer<bool> saveMessagesHistoryValue() const { return _saveMessagesHistory.value(); }
 	[[nodiscard]] rpl::producer<bool> saveMessagesHistoryChanges() const { return _saveMessagesHistory.changes(); }
+	[[nodiscard]] rpl::producer<bool> keepForbiddenChatsValue() const { return _keepForbiddenChats.value(); }
+	[[nodiscard]] rpl::producer<bool> keepForbiddenChatsChanges() const { return _keepForbiddenChats.changes(); }
 	[[nodiscard]] rpl::producer<bool> saveForBotsValue() const { return _saveForBots.value(); }
 	[[nodiscard]] rpl::producer<bool> saveForBotsChanges() const { return _saveForBots.changes(); }
+	[[nodiscard]] rpl::producer<bool> excludeBotsInGroupsValue() const { return _excludeBotsInGroups.value(); }
+	[[nodiscard]] rpl::producer<bool> excludeBotsInGroupsChanges() const { return _excludeBotsInGroups.changes(); }
 	[[nodiscard]] rpl::producer<bool> filtersEnabledValue() const { return _filtersEnabled.value(); }
 	[[nodiscard]] rpl::producer<bool> filtersEnabledChanges() const { return _filtersEnabled.changes(); }
 	[[nodiscard]] rpl::producer<bool> filtersEnabledInChatsValue() const { return _filtersEnabledInChats.value(); }
@@ -615,22 +658,42 @@ public:
 	[[nodiscard]] rpl::producer<bool> singleCornerRadiusChanges() const { return _singleCornerRadius.changes(); }
 	[[nodiscard]] rpl::producer<bool> streamerModeValue() const { return _streamerMode.value(); }
 	[[nodiscard]] rpl::producer<bool> streamerModeChanges() const { return _streamerMode.changes(); }
+	[[nodiscard]] rpl::producer<bool> loadBlockedAvatarsValue() const { return _loadBlockedAvatars.value(); }
+	[[nodiscard]] rpl::producer<bool> loadBlockedAvatarsChanges() const { return _loadBlockedAvatars.changes(); }
+	[[nodiscard]] rpl::producer<bool> channelPromoShownValue() const { return _channelPromoShown.value(); }
+	[[nodiscard]] rpl::producer<bool> channelPromoShownChanges() const { return _channelPromoShown.changes(); }
+	[[nodiscard]] rpl::producer<bool> downloadBoostValue() const { return _downloadBoost.value(); }
+	[[nodiscard]] rpl::producer<bool> downloadBoostChanges() const { return _downloadBoost.changes(); }
+	[[nodiscard]] rpl::producer<bool> uploadBoostValue() const { return _uploadBoost.value(); }
+	[[nodiscard]] rpl::producer<bool> uploadBoostChanges() const { return _uploadBoost.changes(); }
 
 	friend void to_json(nlohmann::json &j, const AyuSettings &s);
 	friend void from_json(const nlohmann::json &j, AyuSettings &s);
 
 private:
 	AyuSettings();
+	void updateMentionsMuteUntil(uint64 peerId, int until);
+	void scheduleMentionsMuteExpiry();
+	void expireMentionsMutes();
 
 	[[nodiscard]] uint64 getOverriddenGhostUserId(uint64 userId) const { return _useGlobalGhostMode.current() ? 0 : userId; }
 
+	rpl::variable<bool> _streamerModeEnabled = false;
 	rpl::variable<bool> _saveDeletedMessages = true;
 	rpl::variable<bool> _saveMessagesHistory = true;
+	rpl::variable<bool> _keepForbiddenChats = true;
 	rpl::variable<bool> _saveForBots = false;
 	std::unordered_set<int64> _shadowBanIds;
+	rpl::variable<bool> _excludeBotsInGroups = false;
 	rpl::variable<bool> _filtersEnabled = false;
 	rpl::variable<bool> _filtersEnabledInChats = false;
+	rpl::variable<bool> _filtersEnabledInChannels = true;
+	rpl::variable<bool> _filtersEnabledInGroups = true;
+	rpl::variable<bool> _filtersEnabledInPrivate = true;
 	rpl::variable<bool> _hideFromBlocked = false;
+	rpl::variable<bool> _collapseDuplicates = true;
+	std::unique_ptr<base::Timer> _mentionsMuteTimer;
+	std::unordered_map<uint64, MentionsSettings> _mentionsSettings;
 	rpl::variable<bool> _semiTransparentDeletedMessages = false;
 	rpl::variable<bool> _disableAds = true;
 	rpl::variable<bool> _disableStories = false;
@@ -685,9 +748,9 @@ private:
 	rpl::variable<bool> _showSReadToggleInDrawer = true;
 	rpl::variable<bool> _showNightModeToggleInDrawer = true;
 	rpl::variable<bool> _showGhostToggleInDrawer = true;
-	rpl::variable<bool> _showStreamerToggleInDrawer = false;
+	rpl::variable<bool> _showStreamerToggleInDrawer = true;
 	rpl::variable<bool> _showGhostToggleInTray = true;
-	rpl::variable<bool> _showStreamerToggleInTray = false;
+	rpl::variable<bool> _showStreamerToggleInTray = true;
 	rpl::variable<bool> _hidePremiumStatuses = false;
 	rpl::variable<QString> _monoFont;
 	rpl::variable<bool> _hideNotificationCounters = false;
@@ -711,6 +774,10 @@ private:
 	rpl::variable<int> _avatarCorners = 23;
 	rpl::variable<bool> _singleCornerRadius = false;
 	rpl::variable<bool> _streamerMode = false;
+	rpl::variable<bool> _loadBlockedAvatars = true;
+	rpl::variable<bool> _channelPromoShown = false;
+	rpl::variable<bool> _downloadBoost = false;
+	rpl::variable<bool> _uploadBoost = false;
 
 	rpl::variable<bool> _useGlobalGhostMode = true;
 	std::map<uint64, std::unique_ptr<GhostModeAccountSettings>> _ghostAccounts;

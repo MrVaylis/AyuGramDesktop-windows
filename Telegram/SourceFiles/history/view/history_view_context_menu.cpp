@@ -919,8 +919,12 @@ bool AddViewRepliesAction(
 		: 0;
 	const auto repliesCount = item->repliesCount();
 	const auto withReplies = (repliesCount > 0);
+	const auto isReplyToPost = !withReplies
+		&& item->replyToTop()
+		&& item->history()->peer->isMegagroup();
+
 	if (!withReplies || !item->history()->peer->isMegagroup()) {
-		if (!topicRootId) {
+		if (!topicRootId && !isReplyToPost) {
 			return false;
 		}
 	}

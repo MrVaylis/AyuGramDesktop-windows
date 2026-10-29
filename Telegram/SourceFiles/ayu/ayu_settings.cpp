@@ -679,6 +679,12 @@ void AyuSettings::setSaveForBots(bool val) {
 	save();
 }
 
+void AyuSettings::setExcludeBotsInGroups(bool val) {
+	if (_excludeBotsInGroups.current() == val) return;
+	_excludeBotsInGroups = val;
+	save();
+}
+
 void AyuSettings::setFiltersEnabled(bool val) {
 	if (_filtersEnabled.current() == val) return;
 	_filtersEnabled = val;
@@ -1338,6 +1344,18 @@ void AyuSettings::setChannelPromoShown(bool val) {
 	save();
 }
 
+void AyuSettings::setDownloadBoost(bool val) {
+	if (_downloadBoost.current() == val) return;
+	_downloadBoost = val;
+	save();
+}
+
+void AyuSettings::setUploadBoost(bool val) {
+	if (_uploadBoost.current() == val) return;
+	_uploadBoost = val;
+	save();
+}
+
 void to_json(nlohmann::json &j, const AyuSettings &s) {
 	auto ghostAccounts = nlohmann::json::object();
 	for (const auto &[key, value] : s._ghostAccounts) {
@@ -1360,6 +1378,7 @@ void to_json(nlohmann::json &j, const AyuSettings &s) {
 		{"saveMessagesHistory", s._saveMessagesHistory.current()},
 		{"keepForbiddenChats", s._keepForbiddenChats.current()},
 		{"saveForBots", s._saveForBots.current()},
+		{"excludeBotsInGroups", s._excludeBotsInGroups.current()},
 		{"shadowBanIds", s._shadowBanIds},
 		{"filtersEnabled", s._filtersEnabled.current()},
 		{"filtersEnabledInChats", s._filtersEnabledInChats.current()},
@@ -1451,6 +1470,8 @@ void to_json(nlohmann::json &j, const AyuSettings &s) {
 		{"streamerMode", s._streamerMode.current()},
 		{"loadBlockedAvatars", s._loadBlockedAvatars.current()},
 		{"channelPromoShown", s._channelPromoShown.current()},
+		{"downloadBoost", s._downloadBoost.current()},
+		{"uploadBoost", s._uploadBoost.current()},
 		{"messageShotSettings", s._messageShotSettings}
 	};
 }
@@ -1473,6 +1494,7 @@ void from_json(const nlohmann::json &j, AyuSettings &s) {
 	s._saveMessagesHistory = j.value("saveMessagesHistory", defaults._saveMessagesHistory.current());
 	s._keepForbiddenChats = j.value("keepForbiddenChats", defaults._keepForbiddenChats.current());
 	s._saveForBots = j.value("saveForBots", defaults._saveForBots.current());
+	s._excludeBotsInGroups = j.value("excludeBotsInGroups", defaults._excludeBotsInGroups.current());
 	s._shadowBanIds = j.value("shadowBanIds", defaults._shadowBanIds);
 	s._filtersEnabled = j.value("filtersEnabled", defaults._filtersEnabled.current());
 	s._filtersEnabledInChats = j.value("filtersEnabledInChats", defaults._filtersEnabledInChats.current());
@@ -1582,6 +1604,8 @@ void from_json(const nlohmann::json &j, AyuSettings &s) {
 	s._streamerMode = j.value("streamerMode", defaults._streamerMode.current());
 	s._loadBlockedAvatars = j.value("loadBlockedAvatars", defaults._loadBlockedAvatars.current());
 	s._channelPromoShown = j.value("channelPromoShown", defaults._channelPromoShown.current());
+	s._downloadBoost = j.value("downloadBoost", defaults._downloadBoost.current());
+	s._uploadBoost = j.value("uploadBoost", defaults._uploadBoost.current());
 
 	if (j.contains("messageShotSettings") && j["messageShotSettings"].is_object()) {
 		j["messageShotSettings"].get_to(s._messageShotSettings);

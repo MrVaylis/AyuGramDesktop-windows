@@ -283,6 +283,7 @@ public:
 	[[nodiscard]] bool keepForbiddenChats() const { return _keepForbiddenChats.current(); }
 	void setKeepForbiddenChats(bool val);
 	[[nodiscard]] bool saveForBots() const { return _saveForBots.current(); }
+	[[nodiscard]] bool excludeBotsInGroups() const { return _excludeBotsInGroups.current(); }
 	[[nodiscard]] bool filtersEnabled() const { return _filtersEnabled.current(); }
 	[[nodiscard]] bool filtersEnabledInChats() const { return _filtersEnabledInChats.current(); }
 	[[nodiscard]] bool filtersEnabledInChannels() const { return _filtersEnabledInChannels.current(); }
@@ -384,10 +385,13 @@ public:
 	[[nodiscard]] bool streamerMode() const { return _streamerMode.current(); }
 	[[nodiscard]] bool loadBlockedAvatars() const { return _loadBlockedAvatars.current(); }
 	[[nodiscard]] bool channelPromoShown() const { return _channelPromoShown.current(); }
+	[[nodiscard]] bool downloadBoost() const { return _downloadBoost.current(); }
+	[[nodiscard]] bool uploadBoost() const { return _uploadBoost.current(); }
 
 	void setSaveDeletedMessages(bool val);
 	void setSaveMessagesHistory(bool val);
 	void setSaveForBots(bool val);
+	void setExcludeBotsInGroups(bool val);
 	void setFiltersEnabled(bool val);
 	void setFiltersEnabledInChats(bool val);
 	void setHideFromBlocked(bool val);
@@ -473,6 +477,8 @@ public:
 	void setStreamerMode(bool val);
 	void setLoadBlockedAvatars(bool val);
 	void setChannelPromoShown(bool val);
+	void setDownloadBoost(bool val);
+	void setUploadBoost(bool val);
 
 	[[nodiscard]] rpl::producer<bool> useGlobalGhostModeValue() const { return _useGlobalGhostMode.value(); }
 	[[nodiscard]] rpl::producer<bool> useGlobalGhostModeChanges() const { return _useGlobalGhostMode.changes(); }
@@ -484,6 +490,8 @@ public:
 	[[nodiscard]] rpl::producer<bool> keepForbiddenChatsChanges() const { return _keepForbiddenChats.changes(); }
 	[[nodiscard]] rpl::producer<bool> saveForBotsValue() const { return _saveForBots.value(); }
 	[[nodiscard]] rpl::producer<bool> saveForBotsChanges() const { return _saveForBots.changes(); }
+	[[nodiscard]] rpl::producer<bool> excludeBotsInGroupsValue() const { return _excludeBotsInGroups.value(); }
+	[[nodiscard]] rpl::producer<bool> excludeBotsInGroupsChanges() const { return _excludeBotsInGroups.changes(); }
 	[[nodiscard]] rpl::producer<bool> filtersEnabledValue() const { return _filtersEnabled.value(); }
 	[[nodiscard]] rpl::producer<bool> filtersEnabledChanges() const { return _filtersEnabled.changes(); }
 	[[nodiscard]] rpl::producer<bool> filtersEnabledInChatsValue() const { return _filtersEnabledInChats.value(); }
@@ -654,6 +662,10 @@ public:
 	[[nodiscard]] rpl::producer<bool> loadBlockedAvatarsChanges() const { return _loadBlockedAvatars.changes(); }
 	[[nodiscard]] rpl::producer<bool> channelPromoShownValue() const { return _channelPromoShown.value(); }
 	[[nodiscard]] rpl::producer<bool> channelPromoShownChanges() const { return _channelPromoShown.changes(); }
+	[[nodiscard]] rpl::producer<bool> downloadBoostValue() const { return _downloadBoost.value(); }
+	[[nodiscard]] rpl::producer<bool> downloadBoostChanges() const { return _downloadBoost.changes(); }
+	[[nodiscard]] rpl::producer<bool> uploadBoostValue() const { return _uploadBoost.value(); }
+	[[nodiscard]] rpl::producer<bool> uploadBoostChanges() const { return _uploadBoost.changes(); }
 
 	friend void to_json(nlohmann::json &j, const AyuSettings &s);
 	friend void from_json(const nlohmann::json &j, AyuSettings &s);
@@ -672,6 +684,7 @@ private:
 	rpl::variable<bool> _keepForbiddenChats = true;
 	rpl::variable<bool> _saveForBots = false;
 	std::unordered_set<int64> _shadowBanIds;
+	rpl::variable<bool> _excludeBotsInGroups = false;
 	rpl::variable<bool> _filtersEnabled = false;
 	rpl::variable<bool> _filtersEnabledInChats = false;
 	rpl::variable<bool> _filtersEnabledInChannels = true;
@@ -763,6 +776,8 @@ private:
 	rpl::variable<bool> _streamerMode = false;
 	rpl::variable<bool> _loadBlockedAvatars = true;
 	rpl::variable<bool> _channelPromoShown = false;
+	rpl::variable<bool> _downloadBoost = false;
+	rpl::variable<bool> _uploadBoost = false;
 
 	rpl::variable<bool> _useGlobalGhostMode = true;
 	std::map<uint64, std::unique_ptr<GhostModeAccountSettings>> _ghostAccounts;

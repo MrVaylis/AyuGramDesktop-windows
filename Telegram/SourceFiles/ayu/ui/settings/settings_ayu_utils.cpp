@@ -479,8 +479,10 @@ CollapsibleToggleResult AddCollapsibleToggle(not_null<Ui::VerticalLayout*> conta
 		}
 	}
 
-	Ui::AddDividerText(verticalLayout, std::move(description));
-	Ui::AddSkip(verticalLayout);
+	if (description) {
+		Ui::AddDividerText(verticalLayout, std::move(description));
+		Ui::AddSkip(verticalLayout);
+	}
 
 	// Apply initial lock visuals.
 	for (auto i = 0u; i < cState->entries.size(); ++i) {

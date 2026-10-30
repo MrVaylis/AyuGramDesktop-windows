@@ -1,0 +1,259 @@
+name: AyuGram Windows
+
+on:
+  push:
+    branches:
+      - dev
+      - 'release/**'
+    tags:
+      - 'v*'
+  pull_request:
+    branches:
+      - dev
+  workflow_dispatch:
+    inputs:
+      publish_release:
+        description: Publish the tested Windows build as a GitHub release
+        type: boolean
+        default: false
+      release_tag:
+        description: Optional tag matching the application version, for example v7.3.4-ayu.1
+        type: string
+        default: ''
+
+permissions:
+  contents: read
+
+concurrency:
+  group: windows-${{ github.workflow }}-${{ github.ref }}-${{ github.event_name }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+jobs:
+  windows:
+    name: Build and test Windows x64
+    runs-on: windows-2022
+    timeout-minutes: 360
+    outputs:
+      publish: ${{ steps.metadata.outputs.publish }}
+      tag: ${{ steps.metadata.outputs.tag }}
+      version: ${{ steps.metadata.outputs.version }}
+      source: ${{ steps.metadata.outputs.source }}
+      prerelease: ${{ steps.metadata.outputs.prerelease }}
+    env:
+      TBUILD: ${{ github.workspace }}\TBuild
+      SOURCE_ROOT: ${{ github.workspace }}\TBuild\AyuGram
+      CMAKE_BUILD_PARALLEL_LEVEL: '2'
+      PYTHONDONTWRITEBYTECODE: '1'
+      GYP_MSVS_VERSION: '2022'
+      GYP_MSVS_OVERRIDE_PATH: 'C:\Program Files\Microsoft Visual Studio\2022\Enterprise\'
+    defaults:
+      run:
+        shell: pwsh
+    steps:
+      - name: Prepare stable build paths
+        shell: cmd
+        run: |
+          if not exist "%USERPROFILE%\TBuild" mkdir "%USERPROFILE%\TBuild"
+          mklink /J "%TBUILD%" "%USERPROFILE%\TBuild"
+          git config --global core.longpaths true
+
+      - name: Check out source and pinned submodules
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          path: TBuild/AyuGram
+          submodules: recursive
+          persist-credentials: false
+
+      - name: Set up MSVC and Windows SDK
+        uses: ilammy/msvc-dev-cmd@0b201ec74fa43914dc39ae48a89fd1d8cb592756
+        with:
+          arch: x64
+          vsversion: '2022'
+          toolset: '14.44'
+          sdk: '10.0.26100.0'
+
+      - name: Validate release identity
+        id: metadata
+        run: python "$env:SOURCE_ROOT\Telegram\build\windows_release.py" metadata
+
+      - name: Run build helper and feature regression tests
+        shell: cmd
+        run: |
+          cd /d "%SOURCE_ROOT%"
+          python -m unittest discover -s Telegram\build\tests -p "test_*.py"
+          if errorlevel 1 exit /b 1
+          python -m unittest discover -s Telegram\build\prepare\tests -p test_prepare_options.py
+          if errorlevel 1 exit /b 1
+          python Telegram\build\validate_emoji_translations.py
+          if errorlevel 1 exit /b 1
+          cl /nologo /std:c++20 /EHsc /W4 /WX /utf-8 /I Telegram\SourceFiles Telegram\SourceFiles\tests\test_emoji_ids.cpp /Fe:"%RUNNER_TEMP%\test_emoji_ids.exe" /Fo:"%RUNNER_TEMP%\test_emoji_ids.obj"
+          if errorlevel 1 exit /b 1
+          "%RUNNER_TEMP%\test_emoji_ids.exe"
+          if errorlevel 1 exit /b 1
+          python Telegram\SourceFiles\ayu\features\filters\tests\run_duplicate_group_test.py
+          if errorlevel 1 exit /b 1
+          cl /nologo /std:c++20 /EHsc /W4 /utf-8 /I Telegram\SourceFiles\ayu\utils Telegram\SourceFiles\ayu\utils\tests\registration_model_test.cpp /Fe:"%RUNNER_TEMP%\registration_model_test.exe" /Fo:"%RUNNER_TEMP%\registration_model_test.obj"
+          if errorlevel 1 exit /b 1
+          "%RUNNER_TEMP%\registration_model_test.exe"
+          if errorlevel 1 exit /b 1
+
+      - name: Compute dependency cache identity
+        id: cache-key
+        env:
+          PREPARATION_HASH: ${{ hashFiles('TBuild/AyuGram/Telegram/build/prepare/**', 'TBuild/AyuGram/Telegram/build/qt_version.py', 'TBuild/AyuGram/Telegram/build/build_mac.py', 'TBuild/AyuGram/cmake/**') }}
+        run: |
+          if ([string]::IsNullOrWhiteSpace($env:PREPARATION_HASH)) { throw 'Dependency inputs were not hashed.' }
+          $identity = "$env:PREPARATION_HASH|$env:VCToolsVersion|$env:WindowsSDKVersion|$(python --version)|qt6|x64|skip-debug"
+          $hash = [Convert]::ToHexString([Security.Cryptography.SHA256]::HashData([Text.Encoding]::UTF8.GetBytes($identity))).ToLowerInvariant()
+          "key=windows-x64-qt6-v1-$hash" >> $env:GITHUB_OUTPUT
+
+      - name: Restore dependency cache
+        id: dependencies
+        uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9
+        with:
+          path: |
+            ~/TBuild/Libraries
+            ~/TBuild/ThirdParty
+          key: ${{ steps.cache-key.outputs.key }}
+
+      - name: Apply pinned AyuGram compatibility patches
+        run: |
+          Set-Location $env:SOURCE_ROOT
+          python Telegram/build/apply_ayu_patches.py
+          if ($LASTEXITCODE -ne 0) { throw 'AyuGram compatibility patches do not match their pinned sources.' }
+          python Telegram/build/apply_ayu_patches.py --check
+          if ($LASTEXITCODE -ne 0) { throw 'AyuGram compatibility patch verification failed.' }
+
+      - name: Test the patched syntax highlighter recursion limit
+        run: |
+          Set-Location $env:SOURCE_ROOT
+          python Telegram/build/tests/run_prisma_depth_test.py
+          if ($LASTEXITCODE -ne 0) { throw 'The native syntax highlighter regression test failed.' }
+
+      - name: Build pinned libraries and static Qt 6
+        id: prepare
+        shell: cmd
+        run: |
+          nuget sources Disable -Name "Microsoft Visual Studio Offline Packages"
+          nuget sources Add -Name ayugram-nuget -Source https://api.nuget.org/v3/index.json
+          call "%SOURCE_ROOT%\Telegram\build\prepare\win.bat" silent qt6 skip-debug
+          if errorlevel 1 exit /b 1
+
+      - name: Compact dependency cache
+        if: steps.dependencies.outputs.cache-hit != 'true'
+        run: |
+          $libraries = Join-Path $env:USERPROFILE 'TBuild\Libraries'
+          $qtInstalls = @(Get-ChildItem -LiteralPath "$libraries\win64" -Directory -Filter 'Qt-*' | ForEach-Object { $_.FullName + '\' })
+          Get-ChildItem -LiteralPath $libraries -Recurse -Force -File | Where-Object {
+            $file = $_
+            ($file.Extension -in '.pdb', '.pch', '.obj', '.ilk') -and -not ($qtInstalls | Where-Object { $file.FullName.StartsWith($_, [StringComparison]::OrdinalIgnoreCase) })
+          } | Remove-Item -Force
+          $gitDirectories = @(Get-ChildItem -LiteralPath $libraries -Recurse -Force -Directory -Filter '.git')
+          $gitDirectories | Sort-Object { $_.FullName.Length } -Descending | Remove-Item -Force -Recurse
+          Get-ChildItem -LiteralPath "$libraries\win64" -Directory -Filter 'qt_*' | ForEach-Object {
+            $installed = Join-Path $_.Parent.FullName ('Qt-' + $_.Name.Substring(3))
+            if ((Test-Path -LiteralPath "$installed\lib\cmake\Qt6\Qt6Config.cmake") -and (Test-Path -LiteralPath (Join-Path $_.Parent.FullName "cache_keys\$($_.Name)"))) {
+              Get-ChildItem -LiteralPath $_.FullName -Force | Remove-Item -Recurse -Force
+              New-Item -ItemType File -Path (Join-Path $_.FullName '.cache-stage') -Force | Out-Null
+            }
+          }
+
+      - name: Save completed dependencies before desktop compilation
+        if: steps.dependencies.outputs.cache-hit != 'true'
+        uses: actions/cache/save@55cc8345863c7cc4c66a329aec7e433d2d1c52a9
+        with:
+          path: |
+            ~/TBuild/Libraries
+            ~/TBuild/ThirdParty
+          key: ${{ steps.cache-key.outputs.key }}
+
+      - name: Build AyuGram Release
+        shell: cmd
+        run: |
+          cd /d "%SOURCE_ROOT%\Telegram"
+          call configure.bat -G "Ninja Multi-Config" qt6 ^
+            -D TDESKTOP_API_ID=2040 ^
+            -D TDESKTOP_API_HASH=b18441a1ff607e10a989891a5462e627 ^
+            -D CMAKE_CONFIGURATION_TYPES=Release ^
+            -D DESKTOP_APP_DISABLE_AUTOUPDATE=ON ^
+            -D DESKTOP_APP_DISABLE_CRASH_REPORTS=ON ^
+            -D DESKTOP_APP_ENABLE_LTO=OFF
+          if errorlevel 1 exit /b 1
+          cmake --build ..\out --config Release --target Telegram --parallel 2
+          if errorlevel 1 exit /b 1
+
+      - name: Test startup and installer, then package
+        run: '& "$env:SOURCE_ROOT\Telegram\build\windows_package.ps1" -SourceRoot $env:SOURCE_ROOT'
+
+      - name: Upload validated release artifacts
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9
+        with:
+          name: ayugram-windows-${{ github.sha }}
+          path: ${{ env.SOURCE_ROOT }}/out/windows-release/*
+          if-no-files-found: error
+          compression-level: 0
+          retention-days: 14
+
+      - name: Preserve build diagnostics
+        if: failure()
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9
+        with:
+          name: windows-diagnostics-${{ github.run_id }}-${{ github.run_attempt }}
+          path: |
+            ${{ env.SOURCE_ROOT }}/out/CMakeCache.txt
+            ${{ env.SOURCE_ROOT }}/out/CMakeFiles/CMakeConfigureLog.yaml
+            ${{ runner.temp }}/ayugram-smoke/profile/log.txt
+            ${{ runner.temp }}/ayugram-smoke/profile/DebugLogs
+          if-no-files-found: ignore
+          retention-days: 7
+
+  publish:
+    name: Publish tested Windows release
+    needs: windows
+    if: needs.windows.outputs.publish == 'true'
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    permissions:
+      contents: write
+    env:
+      GH_TOKEN: ${{ github.token }}
+      GH_REPO: ${{ github.repository }}
+      RELEASE_TAG: ${{ needs.windows.outputs.tag }}
+      RELEASE_VERSION: ${{ needs.windows.outputs.version }}
+      RELEASE_SOURCE: ${{ needs.windows.outputs.source }}
+      RELEASE_PRERELEASE: ${{ needs.windows.outputs.prerelease }}
+    steps:
+      - name: Check out the exact build source
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          ref: ${{ needs.windows.outputs.source }}
+          persist-credentials: false
+
+      - name: Download artifacts from this build
+        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333
+        with:
+          name: ayugram-windows-${{ github.sha }}
+          path: release
+
+      - name: Verify artifacts and publish atomically
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 Telegram/build/windows_release.py verify --output release --source "$RELEASE_SOURCE" --tag "$RELEASE_TAG"
+          if gh api "repos/$GH_REPO/git/ref/tags/$RELEASE_TAG" > "$RUNNER_TEMP/tag.json" 2> "$RUNNER_TEMP/tag.error"; then
+            test "$(gh api "repos/$GH_REPO/commits/$RELEASE_TAG" --jq .sha)" = "$RELEASE_SOURCE" || { echo 'Existing tag refers to a different commit.'; exit 1; }
+          elif ! grep -q 'HTTP 404' "$RUNNER_TEMP/tag.error"; then
+            cat "$RUNNER_TEMP/tag.error"
+            exit 1
+          fi
+          if gh release view "$RELEASE_TAG" --json isDraft,targetCommitish > "$RUNNER_TEMP/release.json" 2> "$RUNNER_TEMP/release.error"; then
+            test "$(jq -r .isDraft "$RUNNER_TEMP/release.json")" = true || { echo 'This release is already published; use a new revision.'; exit 1; }
+            test "$(jq -r .targetCommitish "$RUNNER_TEMP/release.json")" = "$RELEASE_SOURCE" || { echo 'Existing draft targets a different source.'; exit 1; }
+          elif grep -qiE 'release not found|HTTP 404' "$RUNNER_TEMP/release.error"; then
+            gh release create "$RELEASE_TAG" --draft --target "$RELEASE_SOURCE" --title "AyuGram $RELEASE_VERSION for Windows" --notes-file release/release-notes.md
+          else
+            cat "$RUNNER_TEMP/release.error"
+            exit 1
+          fi
+          gh release upload "$RELEASE_TAG" release/* --clobber
+          gh release edit "$RELEASE_TAG" --draft=false --prerelease="$RELEASE_PRERELEASE" --latest="$([[ "$RELEASE_PRERELEASE" == true ]] && echo false || echo true)" --notes-file release/release-notes.md

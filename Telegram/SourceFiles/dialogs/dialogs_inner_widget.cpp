@@ -4109,7 +4109,7 @@ void InnerWidget::fillSearchResultMenu(
 			menu->menu(),
 			[=] {
 				if (const auto item = owner->message(itemId)) {
-					controller->show(Box<DeleteMessagesBox>(item));
+					controller->show(Box<DeleteMessagesBox>(item, false));
 				}
 			},
 			item->ttlDestroyAt(),

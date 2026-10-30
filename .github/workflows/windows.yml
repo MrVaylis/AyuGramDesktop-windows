@@ -66,7 +66,8 @@ jobs:
 
       - name: Mount short build path for MSVC
         shell: cmd
-        run: subst R: "%USERPROFILE%\TBuild"
+        run: |
+          subst R: "%USERPROFILE%\TBuild"
 
       - name: Set up MSVC and Windows SDK
         uses: ilammy/msvc-dev-cmd@0b201ec74fa43914dc39ae48a89fd1d8cb592756

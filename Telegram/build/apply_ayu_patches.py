@@ -1,6 +1,7 @@
 import argparse
 from pathlib import Path
 import subprocess
+import tempfile
 
 from patch_prisma import main as patch_prisma
 
@@ -30,6 +31,13 @@ def git(folder, *args, check=True):
 
 
 def apply_patch(folder, base, patch, check_only=False):
+    with tempfile.TemporaryDirectory(prefix="ayu-patch-") as directory:
+        normalized = Path(directory) / patch.name
+        normalized.write_bytes(patch.read_bytes().replace(b"\r\n", b"\n"))
+        return apply_normalized_patch(folder, base, normalized, check_only)
+
+
+def apply_normalized_patch(folder, base, patch, check_only=False):
     actual = git(folder, "rev-parse", "HEAD").stdout.strip()
     if actual != base:
         raise RuntimeError(f"{folder.name}: expected base {base}, found {actual}.")

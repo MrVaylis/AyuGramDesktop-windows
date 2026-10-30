@@ -21,15 +21,16 @@ class ApplyPatchTest(unittest.TestCase):
         self.repo = self.folder / "dependency"
         self.repo.mkdir()
         self.git("init", "--quiet")
+        self.git("config", "core.autocrlf", "false")
         self.source = self.repo / "source.txt"
-        self.source.write_text("original\n", encoding="utf-8")
+        self.source.write_bytes(b"original\n")
         self.git("add", "source.txt")
         self.git("-c", "user.name=Test", "-c", "user.email=test@example.invalid", "commit", "--quiet", "-m", "base")
         self.base = self.git("rev-parse", "HEAD").stdout.strip()
-        self.source.write_text("patched\n", encoding="utf-8")
+        self.source.write_bytes(b"patched\n")
         self.patch = self.folder / "change.patch"
         self.patch.write_text(self.git("diff").stdout, encoding="utf-8")
-        self.source.write_text("original\n", encoding="utf-8")
+        self.source.write_bytes(b"original\n")
 
     def git(self, *args):
         return subprocess.run(

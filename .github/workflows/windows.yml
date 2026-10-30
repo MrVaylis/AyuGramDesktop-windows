@@ -41,7 +41,7 @@ jobs:
       prerelease: ${{ steps.metadata.outputs.prerelease }}
     env:
       TBUILD: ${{ github.workspace }}\TBuild
-      SOURCE_ROOT: ${{ github.workspace }}\TBuild\AyuGram
+      SOURCE_ROOT: R:\AyuGram
       CMAKE_BUILD_PARALLEL_LEVEL: '2'
       PYTHONDONTWRITEBYTECODE: '1'
       GYP_MSVS_VERSION: '2022'
@@ -63,6 +63,10 @@ jobs:
           path: TBuild/AyuGram
           submodules: recursive
           persist-credentials: false
+
+      - name: Mount short build path for MSVC
+        shell: cmd
+        run: subst R: "%USERPROFILE%\TBuild"
 
       - name: Set up MSVC and Windows SDK
         uses: ilammy/msvc-dev-cmd@0b201ec74fa43914dc39ae48a89fd1d8cb592756
@@ -171,7 +175,7 @@ jobs:
         shell: cmd
         run: |
           cd /d "%SOURCE_ROOT%\Telegram"
-          call configure.bat -G "Ninja Multi-Config" qt6 ^
+          cmake -S . -B ..\out -G "Ninja Multi-Config" ^
             -D TDESKTOP_API_ID=2040 ^
             -D TDESKTOP_API_HASH=b18441a1ff607e10a989891a5462e627 ^
             -D CMAKE_CONFIGURATION_TYPES=Release ^

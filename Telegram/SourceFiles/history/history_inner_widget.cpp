@@ -142,6 +142,7 @@ https://github.com/telegramdesktop/tdesktop/blob/master/LEGAL
 #include "ayu/features/filters/filters_cache_controller.h"
 #include "ayu/ui/context_menu/context_menu.h"
 #include "ayu/ui/settings/filters/edit_filter.h"
+#include "ayu/utils/emoji_ids.h"
 #include "ayu/utils/telegram_helpers.h"
 #include "data/data_document_media.h"
 
@@ -3509,6 +3510,21 @@ void HistoryInner::showContextMenu(QContextMenuEvent *e, bool showFromTouch) {
 			}),
 			&st::menuIconAdd);
 	};
+	const auto addSelectedCopyWithEmojiIds = [=](
+			const TextWithEntities &text) {
+		if (!Ayu::FirstEmojiId(text)) {
+			return;
+		}
+		_menu->addAction(tr::ayu_CopyWithEmojiId(tr::now), [=] {
+			if (!hasCopyRestrictionForSelected()) {
+				QGuiApplication::clipboard()->setText(
+					Ayu::TextWithEmojiIds(getSelectedText().rich));
+				if (hasSelectedItems()) {
+					clearSelected();
+				}
+			}
+		}, &st::menuIconCopy);
+	};
 	const auto lnkPhoto = link
 		? reinterpret_cast<PhotoData*>(
 			link->property(kPhotoLinkMediaProperty).toULongLong())
@@ -3537,6 +3553,7 @@ void HistoryInner::showContextMenu(QContextMenuEvent *e, bool showFromTouch) {
 						}
 					},
 					&st::menuIconCopy);
+				addSelectedCopyWithEmojiIds(selectedText.rich);
 			}
 			if (item && !Ui::SkipTranslate(selectedText.rich)) {
 				const auto peer = item->history()->peer;
@@ -3718,6 +3735,7 @@ void HistoryInner::showContextMenu(QContextMenuEvent *e, bool showFromTouch) {
 						}
 					},
 					&st::menuIconCopy);
+				addSelectedCopyWithEmojiIds(selectedText.rich);
 			}
 			if (item && !Ui::SkipTranslate(selectedText.rich)) {
 				const auto peer = item->history()->peer;
@@ -3824,6 +3842,24 @@ void HistoryInner::showContextMenu(QContextMenuEvent *e, bool showFromTouch) {
 							tr::lng_context_copy_text(tr::now),
 							[=] { copyContextText(itemId); },
 							&st::menuIconCopy);
+						const auto group = session->data().groups().find(item);
+						const auto text = group
+							? HistoryGroupText(group)
+							: HistoryItemText(item);
+						if (Ayu::FirstEmojiId(text.rich)) {
+							_menu->addAction(tr::ayu_CopyWithEmojiId(tr::now), [=] {
+								if (const auto current = session->data().message(itemId)) {
+									if (!showCopyRestriction(current)) {
+										const auto group = session->data().groups().find(current);
+										const auto text = group
+											? HistoryGroupText(group)
+											: HistoryItemText(current);
+										QGuiApplication::clipboard()->setText(
+											Ayu::TextWithEmojiIds(text.rich));
+									}
+								}
+							}, &st::menuIconCopy);
+						}
 					}
 					if ((!item->translation() || !_history->translatedTo())
 						&& (view->hasVisibleText() || mediaHasTextForCopy)) {

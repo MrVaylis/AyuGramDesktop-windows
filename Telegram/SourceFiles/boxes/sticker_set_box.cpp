@@ -1191,7 +1191,6 @@ void StickerSetBox::updateButtons() {
 				if (fillSetCreatorFooter) {
 					fillSetCreatorFooter(raw);
 				}
-				addPackIdActions(raw);
 				raw->setForcedOrigin(
 					Ui::PanelAnimation::Origin::TopRight);
 				top->setForceRippled(true);

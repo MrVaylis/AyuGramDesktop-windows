@@ -2,7 +2,7 @@
 
 This guide defines repository-wide instructions for coding agents working with the AyuGram Desktop (Telegram Desktop fork) codebase.
 
-Avoid building the project.
+Avoid building the project unless a build is requested.
 
 If you're asked to create a Pull Request, then clearly state in PR description that it was AI generated.
 
@@ -27,23 +27,23 @@ Dependencies are located relative to the repository: `../Libraries`, `../win64/L
 **From repository root, run:**
 
 ```bash
-cmake --build out --config Debug --target Telegram
+cmake --build out --config Release --target Telegram --parallel 8
 ```
 
-That's it. The `out/` directory is already configured. The executable will be at `out/Debug/Telegram.exe`.
+That's it. The `out/` directory is already configured. The executable will be at `out/Release/Telegram.exe`.
 
 **From WSL, run through the Linux Docker build environment:**
 
 ```bash
-Telegram/build/docker/centos_env/build_debug.sh
+CMAKE_BUILD_PARALLEL_LEVEL=8 Telegram/build/docker/centos_env/build.sh
 ```
 
 **Important:** When running cmake from a shell that doesn't support `cd`, use quoted absolute paths:
 ```bash
-cmake --build "l:\Telegram\tx64\out" --config Debug --target Telegram
+cmake --build "l:\Telegram\tx64\out" --config Release --target Telegram --parallel 8
 ```
 
-**Never build Release** - it's extremely heavy and not needed for testing changes.
+Use Release by default when a build is requested.
 
 ## Platform-Specific Requirements
 
@@ -144,8 +144,7 @@ user to close that checkout's Telegram/debugger before rebuilding.
 
 ## Best Practices
 
-1. **Always use Debug builds** - Release builds are extremely heavy
-2. **Don't build Release configuration** - it's too heavy for testing
+Use Release by default and eight parallel build jobs unless the user requests otherwise.
 
 ## Debug-Only Code
 

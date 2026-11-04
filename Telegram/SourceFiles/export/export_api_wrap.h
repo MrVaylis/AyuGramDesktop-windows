@@ -214,7 +214,8 @@ private:
 		int offsetId,
 		int addOffset,
 		int limit,
-		FnMut<void(MTPmessages_Messages&&)> done);
+		FnMut<void(MTPmessages_Messages&&)> done,
+		TimeId offsetDate = 0);
 	void startMessagesSlice(Data::MessagesSlice &&slice);
 	void resumeMessagesSlice();
 	void hydrateMessageDone(
@@ -312,7 +313,7 @@ private:
 		int64 offset,
 		const MTPstories_Stories &result);
 
-	template <typename Request>
+	template <typename Request, typename Wrapped>
 	class RequestBuilder;
 
 	template <typename Request>
@@ -336,6 +337,7 @@ private:
 
 	std::unique_ptr<Settings> _settings;
 	MTPInputUser _user = MTP_inputUserSelf();
+	bool _directExport = false;
 
 	std::unique_ptr<StartProcess> _startProcess;
 	std::unique_ptr<LoadedFileCache> _fileCache;

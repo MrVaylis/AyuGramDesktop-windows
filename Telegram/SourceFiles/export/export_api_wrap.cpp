@@ -17,6 +17,7 @@ https://github.com/telegramdesktop/tdesktop/blob/master/LEGAL
 #include "base/random.h"
 #include <set>
 #include <deque>
+#include <variant>
 
 namespace Export {
 namespace {
@@ -581,6 +582,7 @@ struct ApiWrap::ChatProcess : AbstractMessagesProcess {
 
 	int localSplitIndex = 0;
 	int32 largestIdPlusOne = 1;
+	bool datePositioned = false;
 };
 
 struct ApiWrap::TopicProcess : AbstractMessagesProcess {
@@ -597,14 +599,18 @@ struct ApiWrap::TopicProcess : AbstractMessagesProcess {
 };
 
 
-template <typename Request>
+template <typename Request, typename Wrapped>
 class ApiWrap::RequestBuilder {
 public:
-	using Original = MTP::ConcurrentSender::SpecificRequestBuilder<Request>;
+	using Direct = MTP::ConcurrentSender::SpecificRequestBuilder<Request>;
+	using Takeout = MTP::ConcurrentSender::SpecificRequestBuilder<Wrapped>;
 	using Response = typename Request::ResponseType;
 
 	RequestBuilder(
-		Original &&builder,
+		Direct &&builder,
+		Fn<void(const MTP::Error&)> commonFailHandler);
+	RequestBuilder(
+		Takeout &&builder,
 		Fn<void(const MTP::Error&)> commonFailHandler);
 
 	[[nodiscard]] RequestBuilder &done(FnMut<void()> &&handler);
@@ -616,61 +622,81 @@ public:
 	mtpRequestId send();
 
 private:
-	Original _builder;
+	std::variant<Direct, Takeout> _builder;
 	Fn<void(const MTP::Error&)> _commonFailHandler;
 
 };
 
-template <typename Request>
-ApiWrap::RequestBuilder<Request>::RequestBuilder(
-	Original &&builder,
+template <typename Request, typename Wrapped>
+ApiWrap::RequestBuilder<Request, Wrapped>::RequestBuilder(
+	Direct &&builder,
 	Fn<void(const MTP::Error&)> commonFailHandler)
-: _builder(std::move(builder))
+: _builder(std::in_place_type<Direct>, std::move(builder))
 , _commonFailHandler(std::move(commonFailHandler)) {
 }
 
-template <typename Request>
-auto ApiWrap::RequestBuilder<Request>::done(
+template <typename Request, typename Wrapped>
+ApiWrap::RequestBuilder<Request, Wrapped>::RequestBuilder(
+	Takeout &&builder,
+	Fn<void(const MTP::Error&)> commonFailHandler)
+: _builder(std::in_place_type<Takeout>, std::move(builder))
+, _commonFailHandler(std::move(commonFailHandler)) {
+}
+
+template <typename Request, typename Wrapped>
+auto ApiWrap::RequestBuilder<Request, Wrapped>::done(
 	FnMut<void()> &&handler
 ) -> RequestBuilder& {
 	if (handler) {
-		[[maybe_unused]] auto &silence_warning = _builder.done(std::move(handler));
+		std::visit([&](auto &builder) {
+			[[maybe_unused]] auto &silence_warning = builder.done(
+				std::move(handler));
+		}, _builder);
 	}
 	return *this;
 }
 
-template <typename Request>
-auto ApiWrap::RequestBuilder<Request>::done(
+template <typename Request, typename Wrapped>
+auto ApiWrap::RequestBuilder<Request, Wrapped>::done(
 	FnMut<void(Response &&)> &&handler
 ) -> RequestBuilder& {
 	if (handler) {
-		[[maybe_unused]] auto &silence_warning = _builder.done(std::move(handler));
+		std::visit([&](auto &builder) {
+			[[maybe_unused]] auto &silence_warning = builder.done(
+				std::move(handler));
+		}, _builder);
 	}
 	return *this;
 }
 
-template <typename Request>
-auto ApiWrap::RequestBuilder<Request>::fail(
+template <typename Request, typename Wrapped>
+auto ApiWrap::RequestBuilder<Request, Wrapped>::fail(
 	Fn<bool(const MTP::Error &)> &&handler
 ) -> RequestBuilder& {
 	if (handler) {
-		[[maybe_unused]] auto &silence_warning = _builder.fail([
+		auto fail = [
 			common = base::take(_commonFailHandler),
 			specific = std::move(handler)
 		](const MTP::Error &error) {
 			if (!specific(error)) {
 				common(error);
 			}
-		});
+		};
+		std::visit([&](auto &builder) {
+			[[maybe_unused]] auto &silence_warning = builder.fail(
+				std::move(fail));
+		}, _builder);
 	}
 	return *this;
 }
 
-template <typename Request>
-mtpRequestId ApiWrap::RequestBuilder<Request>::send() {
-	return _commonFailHandler
-		? _builder.fail(base::take(_commonFailHandler)).send()
-		: _builder.send();
+template <typename Request, typename Wrapped>
+mtpRequestId ApiWrap::RequestBuilder<Request, Wrapped>::send() {
+	return std::visit([&](auto &builder) {
+		return _commonFailHandler
+			? builder.fail(base::take(_commonFailHandler)).send()
+			: builder.send();
+	}, _builder);
 }
 
 ApiWrap::LoadedFileCache::LoadedFileCache(int limit) : _limit(limit) {
@@ -711,44 +737,68 @@ ApiWrap::FileProcess::FileProcess(const QString &path, Output::Stats *stats)
 
 template <typename Request>
 auto ApiWrap::mainRequest(Request &&request) {
+	using Wrapped = MTPInvokeWithTakeout<Request>;
+	const auto failed = [=](const MTP::Error &result) {
+		error(result);
+	};
+	if (_directExport) {
+		auto direct = _mtp.request(std::forward<Request>(request));
+		return RequestBuilder<Request, Wrapped>(
+			std::move(direct),
+			failed);
+	}
 	Expects(_takeoutId.has_value());
 
-	auto original = std::move(_mtp.request(MTPInvokeWithTakeout<Request>(
+	auto original = std::move(_mtp.request(Wrapped(
 		MTP_long(*_takeoutId),
 		std::forward<Request>(request)
 	)).toDC(MTP::ShiftDcId(0, MTP::kExportDcShift)));
 
-	return RequestBuilder<MTPInvokeWithTakeout<Request>>(
+	return RequestBuilder<Request, Wrapped>(
 		std::move(original),
-		[=](const MTP::Error &result) { error(result); });
+		failed);
 }
 
 template <typename Request>
 auto ApiWrap::splitRequest(int index, Request &&request) {
+	using Wrapped = MTPInvokeWithTakeout<
+		MTPInvokeWithMessagesRange<Request>>;
+	const auto failed = [=](const MTP::Error &result) {
+		error(result);
+	};
+	if (_directExport) {
+		auto direct = _mtp.request(std::forward<Request>(request));
+		return RequestBuilder<Request, Wrapped>(
+			std::move(direct),
+			failed);
+	}
 	Expects(index < _splits.size());
+	Expects(_takeoutId.has_value());
 
-	//if (index == _splits.size() - 1) {
-	//	return mainRequest(std::forward<Request>(request));
-	//}
-	return mainRequest(MTPInvokeWithMessagesRange<Request>(
-		_splits[index],
-		std::forward<Request>(request)));
+	auto wrapped = std::move(_mtp.request(Wrapped(
+		MTP_long(*_takeoutId),
+		MTPInvokeWithMessagesRange<Request>(
+			_splits[index],
+			std::forward<Request>(request))
+	)).toDC(MTP::ShiftDcId(0, MTP::kExportDcShift)));
+	return RequestBuilder<Request, Wrapped>(
+		std::move(wrapped),
+		failed);
 }
 
 auto ApiWrap::fileRequest(const Data::FileLocation &location, int64 offset) {
 	Expects(location.dcId != 0
 		|| location.data.type() == mtpc_inputTakeoutFileLocation);
-	Expects(_takeoutId.has_value());
 	Expects(_fileProcess->requestId == 0);
 
-	return std::move(_mtp.request(MTPInvokeWithTakeout<MTPupload_GetFile>(
-		MTP_long(*_takeoutId),
-		MTPupload_GetFile(
-			MTP_flags(0),
-			location.data,
-			MTP_long(offset),
-			MTP_int(kFileChunkSize))
-	)).fail([=](const MTP::Error &result) {
+	using Request = MTPupload_GetFile;
+	using Wrapped = MTPInvokeWithTakeout<Request>;
+	auto request = Request(
+		MTP_flags(0),
+		location.data,
+		MTP_long(offset),
+		MTP_int(kFileChunkSize));
+	const auto failed = [=](const MTP::Error &result) {
 		_fileProcess->requestId = 0;
 		if (result.type() == u"TAKEOUT_FILE_EMPTY"_q
 			&& _otherDataProcess != nullptr) {
@@ -768,7 +818,22 @@ auto ApiWrap::fileRequest(const Data::FileLocation &location, int64 offset) {
 		} else {
 			error(std::move(result));
 		}
-	}).toDC(MTP::ShiftDcId(location.dcId, MTP::kExportMediaDcShift)));
+	};
+	if (_directExport) {
+		auto direct = std::move(_mtp.request(std::move(request)).toDC(
+			MTP::ShiftDcId(location.dcId, MTP::kBaseDownloadDcShift)));
+		return RequestBuilder<Request, Wrapped>(
+			std::move(direct),
+			failed);
+	}
+	Expects(_takeoutId.has_value());
+	auto wrapped = std::move(_mtp.request(Wrapped(
+		MTP_long(*_takeoutId),
+		std::move(request)
+	)).toDC(MTP::ShiftDcId(location.dcId, MTP::kExportMediaDcShift)));
+	return RequestBuilder<Request, Wrapped>(
+		std::move(wrapped),
+		failed);
 }
 
 ApiWrap::ApiWrap(
@@ -794,6 +859,7 @@ void ApiWrap::startExport(
 	Expects(_startProcess == nullptr);
 
 	_settings = std::make_unique<Settings>(settings);
+	_directExport = _settings->onlySinglePeer();
 	_stats = stats;
 	_startProcess = std::make_unique<StartProcess>();
 	_startProcess->done = std::move(done);
@@ -920,6 +986,14 @@ void ApiWrap::requestProfileMusicCount() {
 
 void ApiWrap::requestSplitRanges() {
 	Expects(_startProcess != nullptr);
+	if (_directExport) {
+		_splits.push_back(MTP_messageRange(
+			MTP_int(1),
+			MTP_int(std::numeric_limits<int>::max())));
+		_startProcess->splitIndex = 0;
+		sendNextStartRequest();
+		return;
+	}
 
 	mainRequest(MTPmessages_GetSplitRanges(
 	)).done([=](const MTPVector<MTPMessageRange> &result) {
@@ -1091,6 +1165,10 @@ void ApiWrap::startMainSession(FnMut<void()> done) {
 		}
 		if (!_selfId) {
 			error("Could not retrieve selfId.");
+			return;
+		}
+		if (_directExport) {
+			done();
 			return;
 		}
 		_mtp.request(MTPaccount_InitTakeoutSession(
@@ -1822,9 +1900,11 @@ void ApiWrap::requestMessagesCount(int localSplitIndex) {
 			error("Unexpected messagesNotModified received.");
 			return;
 		}
-		const auto skipSplit = !Data::SingleMessageAfter(
-			result,
-			_settings->singlePeerFrom);
+		const auto skipSplit = count == 0
+			|| (_settings->singlePeerFrom > 0
+				&& Data::SingleMessageBefore(
+					result,
+					_settings->singlePeerFrom));
 		if (skipSplit) {
 			// No messages from the requested range, skip this split.
 			messagesCountLoaded(localSplitIndex, 0);
@@ -1872,6 +1952,10 @@ void ApiWrap::messagesCountLoaded(int localSplitIndex, int count) {
 }
 
 void ApiWrap::finishExport(FnMut<void()> done) {
+	if (_directExport) {
+		done();
+		return;
+	}
 	const auto guard = gsl::finally([&] { _takeoutId = std::nullopt; });
 
 	mainRequest(MTPaccount_FinishTakeoutSession(
@@ -2211,6 +2295,31 @@ void ApiWrap::requestMessagesSlice() {
 		startMessagesSlice({});
 		return;
 	}
+	if (_settings->singlePeerFrom > 0 && !_chatProcess->datePositioned) {
+		_chatProcess->datePositioned = true;
+		requestChatMessages(
+			_chatProcess->info.splits[_chatProcess->localSplitIndex],
+			0,
+			0,
+			1,
+			[=](const MTPmessages_Messages &result) {
+				Expects(_chatProcess != nullptr);
+				const auto beforeId = result.match(
+					[](const MTPDmessages_messagesNotModified &) {
+						return 0;
+					}, [](const auto &data) {
+						const auto &list = data.vmessages().v;
+						return list.isEmpty() ? 0 : list.front().match(
+							[](const auto &message) { return message.vid().v; });
+					});
+				_chatProcess->largestIdPlusOne = beforeId > 0
+					? beforeId + 1
+					: 1;
+				requestMessagesSlice();
+			},
+			_settings->singlePeerFrom);
+		return;
+	}
 	requestChatMessages(
 		_chatProcess->info.splits[_chatProcess->localSplitIndex],
 		_chatProcess->largestIdPlusOne,
@@ -2225,12 +2334,19 @@ void ApiWrap::requestMessagesSlice() {
 			if constexpr (MTPDmessages_messages::Is<decltype(data)>()) {
 				_chatProcess->lastSlice = true;
 			}
-			startMessagesSlice(Data::ParseMessagesSlice(
+			auto slice = Data::ParseMessagesSlice(
 				_chatProcess->context,
 				data.vmessages(),
 				data.vusers(),
 				data.vchats(),
-				_chatProcess->info.relativePath));
+				_chatProcess->info.relativePath);
+			if (_settings->singlePeerTill > 0
+				&& ranges::any_of(slice.list, [&](const Data::Message &message) {
+					return message.date >= _settings->singlePeerTill;
+				})) {
+				_chatProcess->lastSlice = true;
+			}
+			startMessagesSlice(std::move(slice));
 		});
 	});
 }
@@ -2240,7 +2356,8 @@ void ApiWrap::requestChatMessages(
 		int offsetId,
 		int addOffset,
 		int limit,
-		FnMut<void(MTPmessages_Messages&&)> done) {
+		FnMut<void(MTPmessages_Messages&&)> done,
+		TimeId offsetDate) {
 	Expects(_chatProcess != nullptr);
 
 	_chatProcess->requestDone = std::move(done);
@@ -2270,7 +2387,7 @@ void ApiWrap::requestChatMessages(
 			MTPint(), // top_msg_id
 			MTP_inputMessagesFilterEmpty(),
 			MTP_int(0), // min_date
-			MTP_int(0), // max_date
+			MTP_int(offsetDate), // max_date
 			MTP_int(offsetId),
 			MTP_int(addOffset),
 			MTP_int(limit),
@@ -2282,7 +2399,7 @@ void ApiWrap::requestChatMessages(
 		splitRequest(realSplitIndex, MTPmessages_GetHistory(
 			realPeerInput,
 			MTP_int(offsetId),
-			MTP_int(0), // offset_date
+			MTP_int(offsetDate), // offset_date
 			MTP_int(addOffset),
 			MTP_int(limit),
 			MTP_int(0), // max_id
@@ -2303,7 +2420,8 @@ void ApiWrap::requestChatMessages(
 						offsetId,
 						addOffset,
 						limit,
-						base::take(_chatProcess->requestDone));
+						base::take(_chatProcess->requestDone),
+						offsetDate);
 					return true;
 				}
 			}
@@ -2818,6 +2936,7 @@ void ApiWrap::finishMessagesSlice() {
 			< _chatProcess->info.splits.size())) {
 		_chatProcess->lastSlice = false;
 		_chatProcess->largestIdPlusOne = 1;
+		_chatProcess->datePositioned = false;
 	}
 	if (!_chatProcess->lastSlice) {
 		requestMessagesSlice();

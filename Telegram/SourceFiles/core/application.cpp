@@ -1070,7 +1070,7 @@ void Application::logoutWithChecks(Main::Account *account) {
 	if (!account || !account->sessionExists()) {
 		logout(account);
 	} else if (_exportManager->inProgress(&account->session())) {
-		_exportManager->stopWithConfirmation(retry);
+		_exportManager->stopWithConfirmation(retry, &account->session());
 	} else if (account->session().uploadsInProgress()) {
 		account->session().uploadsStopWithConfirmation(retry);
 	} else if (_downloadManager->loadingInProgress(&account->session())) {
@@ -1179,8 +1179,10 @@ Main::Session *Application::maybePrimarySession() const {
 
 bool Application::exportPreventsQuit() {
 	if (_exportManager->inProgress()) {
-		_exportManager->stopWithConfirmation([] {
-			Quit();
+		_exportManager->stopWithConfirmation([=] {
+			if (!exportPreventsQuit()) {
+				Quit();
+			}
 		});
 		return true;
 	}

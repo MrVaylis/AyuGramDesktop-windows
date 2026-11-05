@@ -1134,6 +1134,7 @@ void MainWidget::callTopBarHeightUpdated(int callTopBarHeight) {
 }
 
 void MainWidget::setCurrentExportView(Export::View::PanelController *view) {
+	_exportViewLifetime.destroy();
 	_currentExportView = view;
 	if (_currentExportView) {
 		_currentExportView->progressState(

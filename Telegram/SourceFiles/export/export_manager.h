@@ -42,14 +42,17 @@ public:
 	[[nodiscard]] rpl::producer<View::PanelController*> currentView() const;
 	[[nodiscard]] bool inProgress() const;
 	[[nodiscard]] bool inProgress(not_null<Main::Session*> session) const;
-	void stopWithConfirmation(Fn<void()> callback);
+	void stopWithConfirmation(
+		Fn<void()> callback,
+		Main::Session *session = nullptr);
 	void stop();
 
 private:
-	void setupPanel(not_null<Main::Session*> session);
+	struct Task;
+	void setupPanel(not_null<Main::Session*> session, std::unique_ptr<Controller> controller);
+	void stopTask(Task *task);
 
-	std::unique_ptr<Controller> _controller;
-	std::unique_ptr<View::PanelController> _panel;
+	std::vector<std::unique_ptr<Task>> _tasks;
 	rpl::event_stream<View::PanelController*> _viewChanges;
 
 };

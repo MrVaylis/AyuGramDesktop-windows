@@ -311,6 +311,8 @@ void ProgressWidget::setupBottomButton(not_null<Ui::RoundButton*> button) {
 void ProgressWidget::updateState(Content &&content) {
 	if (!content.rows.empty() && content.rows[0].id == Content::kDoneId) {
 		showDone();
+		_about->setText(tr::lng_export_about_done(tr::now)
+			+ '\n' + content.doneSummary);
 	}
 
 	const auto wasCount = _rows.size();

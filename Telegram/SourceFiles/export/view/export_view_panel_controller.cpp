@@ -204,6 +204,9 @@ void PanelController::showSettings() {
 
 	settings->startClicks(
 	) | rpl::on_next([=]() {
+		if (_settings->onlySinglePeer()) {
+			_settings->forceSubPath = true;
+		}
 		showProgress();
 		_process->startExport(*_settings, PrepareEnvironment(_session));
 	}, settings->lifetime());
@@ -309,7 +312,9 @@ void PanelController::showProgress() {
 	_settings->availableAt = 0;
 	ClearSuggestStart(_session);
 
-	_panel->setTitle(tr::lng_export_progress_title());
+	_panel->setTitle(rpl::single(_exportPeerTitle.isEmpty()
+		? tr::lng_export_progress_title(tr::now)
+		: _exportPeerTitle));
 
 	auto progress = base::make_unique_q<ProgressWidget>(
 		_panel.get(),
@@ -406,13 +411,24 @@ void PanelController::updateState(State &&state) {
 	if (!_panel) {
 		createPanel();
 	}
+	if (const auto progress = std::get_if<ProcessingState>(&state)) {
+		if (_settings->onlySinglePeer()
+			&& !progress->entityName.isEmpty()
+			&& (progress->step == ProcessingState::Step::Dialogs
+				|| progress->step == ProcessingState::Step::Topic)) {
+			_exportPeerTitle = progress->entityName;
+			_panel->setTitle(rpl::single(_exportPeerTitle));
+		}
+	}
 	_state = std::move(state);
 	if (const auto apiError = std::get_if<ApiErrorState>(&_state)) {
 		showError(*apiError);
 	} else if (const auto error = std::get_if<OutputErrorState>(&_state)) {
 		showError(*error);
 	} else if (v::is<FinishedState>(_state)) {
-		_panel->setTitle(tr::lng_export_title());
+		_panel->setTitle(rpl::single(_exportPeerTitle.isEmpty()
+			? tr::lng_export_title(tr::now)
+			: _exportPeerTitle));
 		_panel->setHideOnDeactivate(false);
 	} else if (v::is<CancelledState>(_state)) {
 		LOG(("Export Info: Stop Panel After Cancel."));

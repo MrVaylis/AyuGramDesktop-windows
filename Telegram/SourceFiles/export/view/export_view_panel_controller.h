@@ -79,6 +79,7 @@ private:
 	base::unique_qptr<Ui::SeparatePanel> _panel;
 
 	State _state;
+	QString _exportPeerTitle;
 	base::weak_qptr<Ui::BoxContent> _confirmStopBox;
 	rpl::event_stream<rpl::producer<>> _panelCloseEvents;
 	bool _stopRequested = false;

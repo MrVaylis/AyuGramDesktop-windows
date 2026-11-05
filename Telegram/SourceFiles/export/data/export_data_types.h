@@ -492,6 +492,12 @@ struct Photo {
 	Image image;
 };
 
+struct AvatarChange {
+	TimeId date = 0;
+	bool removed = false;
+	Photo photo;
+};
+
 struct Document {
 	uint64 id = 0;
 	TimeId date = 0;
@@ -1402,6 +1408,8 @@ struct DialogInfo {
 
 	// Filled when requesting dialog messages.
 	std::vector<int> messagesCountPerSplit;
+	int messagesSkippedByDate = 0;
+	std::vector<AvatarChange> avatars;
 };
 
 struct DialogsInfo {

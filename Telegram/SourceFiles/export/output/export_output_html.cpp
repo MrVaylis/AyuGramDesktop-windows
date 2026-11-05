@@ -4463,10 +4463,39 @@ auto HtmlWriter::Wrap::pushMessage(
 	}
 	info.type = MessageInfo::Type::Default;
 
-	const auto wrap = messageNeedsWrap(message, previous);
+	const auto changedAvatar = previous
+		&& message.fromId == dialog.peerId
+		&& ranges::any_of(dialog.avatars, [&](const auto &avatar) {
+			return avatar.date > previous->date && avatar.date <= message.date;
+		});
+	const auto wrap = changedAvatar || messageNeedsWrap(message, previous);
 	const auto fromPeerId = message.fromId;
 	const auto showForwardedInfo = message.forwarded
 		&& !message.showForwardedAsOriginal;
+	const auto applyDialogAvatar = [&](
+			UserpicData &userpic,
+			PeerId author,
+			TimeId date) {
+		if (author != dialog.peerId || dialog.avatars.empty()) {
+			return;
+		}
+		const auto position = std::upper_bound(
+			dialog.avatars.begin(),
+			dialog.avatars.end(),
+			date,
+			[](TimeId date, const Data::AvatarChange &change) {
+				return date < change.date;
+			});
+		if (position == dialog.avatars.begin()) {
+			return;
+		}
+		const auto &avatar = *std::prev(position);
+		if (avatar.removed || avatar.photo.image.file.relativePath.isEmpty()) {
+			return;
+		}
+		userpic.largeLink = avatar.photo.image.file.relativePath;
+		userpic.imageLink = userpic.largeLink;
+	};
 	auto forwardedUserpic = UserpicData();
 	if (message.forwarded) {
 		forwardedUserpic.colorIndex = message.forwardedFromId
@@ -4480,6 +4509,10 @@ auto HtmlWriter::Wrap::pushMessage(
 		} else {
 			FillUserpicNames(forwardedUserpic, message.forwardedFromName);
 		}
+		applyDialogAvatar(
+			forwardedUserpic,
+			message.forwardedFromId,
+			message.forwardedDate);
 	}
 	auto userpic = UserpicData();
 	if (message.showForwardedAsOriginal) {
@@ -4488,6 +4521,7 @@ auto HtmlWriter::Wrap::pushMessage(
 		userpic.colorIndex = PeerColorIndex(fromPeerId);
 		userpic.pixelSize = kHistoryUserpicSize;
 		FillUserpicNames(userpic, peers.peer(fromPeerId));
+		applyDialogAvatar(userpic, fromPeerId, message.date);
 	}
 
 	const auto via = [&] {
@@ -6416,6 +6450,10 @@ Result HtmlWriter::writeDialogsStart(const Data::DialogsInfo &data) {
 
 Result HtmlWriter::writeDialogStart(const Data::DialogInfo &data) {
 	Expects(_chat == nullptr);
+	if (const auto result = WriteAvatarManifest(data, _settings.path, _stats);
+		!result) {
+		return result;
+	}
 
 	_chat = fileWithRelativePath(data.relativePath + messagesFile(0));
 	_chatFileEmpty = true;

@@ -36,6 +36,11 @@ QString NormalizePath(const Settings &settings);
 struct Result;
 class Stats;
 
+[[nodiscard]] Result WriteAvatarManifest(
+	const Data::DialogInfo &dialog,
+	const QString &rootPath,
+	Stats *stats);
+
 enum class Format {
 	Html,
 	Json,

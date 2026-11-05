@@ -116,7 +116,7 @@ public:
 		FnMut<void()> done);
 
 	void finishExport(FnMut<void()> done);
-	void skipFile(uint64 randomId);
+	bool skipFile(uint64 randomId);
 	void cancelExportFast();
 
 	~ApiWrap();
@@ -206,8 +206,17 @@ private:
 		int splitIndex);
 
 	void requestMessagesCount(int localSplitIndex);
-	void checkFirstMessageDate(int localSplitIndex, int count);
-	void messagesCountLoaded(int localSplitIndex, int count);
+	void requestMessagesRangeCount(int localSplitIndex, int totalCount);
+	void messagesCountLoaded(
+		int localSplitIndex,
+		int count,
+		int skippedByDate = 0);
+	void requestDialogAvatars();
+	void requestUserAvatars();
+	void requestChatAvatars();
+	void finishAvatarHistory();
+	void loadNextAvatar();
+	void avatarFileDone(const QString &relativePath);
 	void requestMessagesSlice();
 	void requestChatMessages(
 		int splitIndex,
@@ -276,7 +285,8 @@ private:
 		Fn<bool(FileProgress)> progress,
 		FnMut<void(QString)> done,
 		Data::Message *message = nullptr,
-		Data::Story *story = nullptr);
+		Data::Story *story = nullptr,
+		bool alwaysDownload = false);
 	std::unique_ptr<FileProcess> prepareFileProcess(
 		const Data::File &file,
 		const Data::FileOrigin &origin) const;

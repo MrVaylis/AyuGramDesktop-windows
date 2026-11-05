@@ -123,6 +123,9 @@ private:
 
 	int _messagesWritten = 0;
 	int _messagesCount = 0;
+	int64 _messagesExported = 0;
+	int64 _messagesSkippedByDate = 0;
+	int64 _filesSkippedManually = 0;
 
 	int _userpicsWritten = 0;
 	int _userpicsCount = 0;
@@ -313,7 +316,10 @@ void ControllerObject::skipFile(uint64 randomId) {
 	if (stopped()) {
 		return;
 	}
-	_api.skipFile(randomId);
+	++_filesSkippedManually;
+	if (!_api.skipFile(randomId)) {
+		--_filesSkippedManually;
+	}
 }
 
 void ControllerObject::fillExportSteps() {
@@ -596,6 +602,7 @@ void ControllerObject::exportNextDialog() {
 			_messagesCount = ranges::accumulate(
 				info.messagesCountPerSplit,
 				0);
+			_messagesSkippedByDate += info.messagesSkippedByDate;
 			setState(stateDialogs(DownloadProgress()));
 			return true;
 		}, [=](DownloadProgress progress) {
@@ -605,7 +612,13 @@ void ControllerObject::exportNextDialog() {
 			if (ioCatchError(_writer->writeDialogSlice(result))) {
 				return false;
 			}
-			_messagesWritten += result.list.size();
+			const auto written = ranges::count_if(
+				result.list,
+				[&](const Data::Message &message) {
+					return !Data::SkipMessageByDate(message, _settings);
+				});
+			_messagesWritten += written;
+			_messagesExported += written;
 			setState(stateDialogs(DownloadProgress()));
 			return true;
 		}, [=] {
@@ -790,7 +803,13 @@ void ControllerObject::exportTopic() {
 			if (ioCatchError(_writer->writeDialogSlice(slice))) {
 				return false;
 			}
-			_messagesWritten += slice.list.size();
+			const auto written = ranges::count_if(
+				slice.list,
+				[&](const Data::Message &message) {
+					return !Data::SkipMessageByDate(message, _settings);
+				});
+			_messagesWritten += written;
+			_messagesExported += written;
 			setState(stateTopic(DownloadProgress()));
 			return true;
 		},
@@ -830,7 +849,10 @@ void ControllerObject::setFinishedState() {
 	setState(FinishedState{
 		_writer->mainFilePath(),
 		_stats.filesCount(),
-		_stats.bytesCount() });
+		_stats.bytesCount(),
+		_messagesExported,
+		_messagesSkippedByDate,
+		_filesSkippedManually });
 }
 
 Controller::Controller(

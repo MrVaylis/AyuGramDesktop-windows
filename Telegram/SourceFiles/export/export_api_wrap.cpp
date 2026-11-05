@@ -583,6 +583,9 @@ struct ApiWrap::ChatProcess : AbstractMessagesProcess {
 	int localSplitIndex = 0;
 	int32 largestIdPlusOne = 1;
 	bool datePositioned = false;
+	uint64 avatarMaxId = 0;
+	int32 avatarOffsetId = 0;
+	int avatarIndex = 0;
 };
 
 struct ApiWrap::TopicProcess : AbstractMessagesProcess {
@@ -1906,49 +1909,274 @@ void ApiWrap::requestMessagesCount(int localSplitIndex) {
 					result,
 					_settings->singlePeerFrom));
 		if (skipSplit) {
-			// No messages from the requested range, skip this split.
-			messagesCountLoaded(localSplitIndex, 0);
+			messagesCountLoaded(localSplitIndex, 0, count);
 			return;
 		}
-		checkFirstMessageDate(localSplitIndex, count);
+		if (_settings->singlePeerFrom > 0
+			|| _settings->singlePeerTill > 0) {
+			requestMessagesRangeCount(localSplitIndex, count);
+		} else {
+			messagesCountLoaded(localSplitIndex, count);
+		}
 	});
 }
 
-void ApiWrap::checkFirstMessageDate(int localSplitIndex, int count) {
+void ApiWrap::requestMessagesRangeCount(
+		int localSplitIndex,
+		int totalCount) {
 	Expects(_chatProcess != nullptr);
 	Expects(localSplitIndex < _chatProcess->info.splits.size());
 
-	if (_settings->singlePeerTill <= 0) {
-		messagesCountLoaded(localSplitIndex, count);
-		return;
-	}
-
-	// Request first message in this split to check if its' date < till.
-	requestChatMessages(
-		_chatProcess->info.splits[localSplitIndex],
-		1, // offset_id
-		-1, // add_offset
-		1, // limit
-		[=](const MTPmessages_Messages &result) {
-		Expects(_chatProcess != nullptr);
-
-		const auto skipSplit = !Data::SingleMessageBefore(
-			result,
-			_settings->singlePeerTill);
-		messagesCountLoaded(localSplitIndex, skipSplit ? 0 : count);
-	});
+	const auto split = _chatProcess->info.splits[localSplitIndex];
+	const auto splitIndex = split >= 0 ? split : int(_splits.size()) + split;
+	const auto peer = split >= 0
+		? _chatProcess->info.input
+		: _chatProcess->info.migratedFromInput;
+	const auto onlyMine = _chatProcess->info.onlyMyMessages;
+	const auto outgoing = _chatProcess->info.isMonoforum
+		? _chatProcess->info.monoforumBroadcastInput
+		: MTP_inputPeerSelf();
+	const auto flags = onlyMine
+		? MTP_flags(MTPmessages_Search::Flag::f_from_id)
+		: MTP_flags(0);
+	const auto from = _settings->singlePeerFrom;
+	const auto till = _settings->singlePeerTill;
+	splitRequest(splitIndex, MTPmessages_Search(
+		flags,
+		peer,
+		MTP_string(),
+		onlyMine ? outgoing : MTP_inputPeerEmpty(),
+		MTPInputPeer(),
+		MTPVector<MTPReaction>(),
+		MTPint(),
+		MTP_inputMessagesFilterEmpty(),
+		MTP_int(from > 0 ? from - 1 : 0),
+		MTP_int(till),
+		MTP_int(0),
+		MTP_int(0),
+		MTP_int(1),
+		MTP_int(0),
+		MTP_int(0),
+		MTP_long(0)
+	)).done([=](const MTPmessages_Messages &result) {
+		const auto count = result.match(
+			[](const MTPDmessages_messages &data) {
+				return int(data.vmessages().v.size());
+			}, [](const MTPDmessages_messagesSlice &data) {
+				return data.vcount().v;
+			}, [](const MTPDmessages_channelMessages &data) {
+				return data.vcount().v;
+			}, [](const MTPDmessages_messagesNotModified &) {
+				return -1;
+			});
+		if (count < 0) {
+			error("Unexpected messagesNotModified received.");
+			return;
+		}
+		const auto eligible = std::min(count, totalCount);
+		messagesCountLoaded(
+			localSplitIndex,
+			eligible,
+			std::max(totalCount - eligible, 0));
+	}).send();
 }
 
-void ApiWrap::messagesCountLoaded(int localSplitIndex, int count) {
+void ApiWrap::messagesCountLoaded(
+		int localSplitIndex,
+		int count,
+		int skippedByDate) {
 	Expects(_chatProcess != nullptr);
 	Expects(localSplitIndex < _chatProcess->info.splits.size());
 
 	_chatProcess->info.messagesCountPerSplit[localSplitIndex] = count;
+	_chatProcess->info.messagesSkippedByDate += skippedByDate;
 	if (localSplitIndex + 1 < _chatProcess->info.splits.size()) {
 		requestMessagesCount(localSplitIndex + 1);
-	} else if (_chatProcess->start(_chatProcess->info)) {
+	} else {
+		requestDialogAvatars();
+	}
+}
+
+void ApiWrap::requestDialogAvatars() {
+	Expects(_chatProcess != nullptr);
+	const auto peer = _chatProcess->info.input.type();
+	if (peer == mtpc_inputPeerUser || peer == mtpc_inputPeerSelf) {
+		requestUserAvatars();
+	} else if (peer == mtpc_inputPeerChannel || peer == mtpc_inputPeerChat) {
+		requestChatAvatars();
+	} else {
+		finishAvatarHistory();
+	}
+}
+
+void ApiWrap::requestUserAvatars() {
+	Expects(_chatProcess != nullptr);
+	const auto input = _chatProcess->info.input.match(
+		[](const MTPDinputPeerUser &data) {
+			return MTP_inputUser(data.vuser_id(), data.vaccess_hash());
+		}, [](const MTPDinputPeerSelf &) {
+			return MTP_inputUserSelf();
+		}, [](const auto &) {
+			return MTP_inputUserEmpty();
+		});
+	mainRequest(MTPphotos_GetUserPhotos(
+		input,
+		MTP_int(0),
+		MTP_long(_chatProcess->avatarMaxId),
+		MTP_int(kUserpicsSliceLimit)
+	)).fail([=](const MTP::Error &) {
+		finishAvatarHistory();
+		return true;
+	}).done([=](const MTPphotos_Photos &result) {
+		Expects(_chatProcess != nullptr);
+		result.match([&](const auto &data) {
+			const auto &photos = data.vphotos().v;
+			auto parsed = Data::ParseUserpicsSlice(data.vphotos(), 0);
+			for (auto &photo : parsed.list) {
+				if (!photo.id) {
+					continue;
+				}
+				photo.image.file.suggestedPath =
+					_chatProcess->info.relativePath
+					+ "avatars/avatar_" + QString::number(photo.id) + ".jpg";
+				_chatProcess->info.avatars.push_back(Data::AvatarChange{
+					.date = photo.date,
+					.photo = std::move(photo),
+				});
+			}
+			if (photos.empty() || photos.size() < kUserpicsSliceLimit) {
+				finishAvatarHistory();
+			} else {
+				const auto last = photos.back().match(
+					[](const MTPDphoto &photo) { return photo.vid().v; },
+					[](const MTPDphotoEmpty &photo) { return photo.vid().v; });
+				if (!last || last == _chatProcess->avatarMaxId) {
+					finishAvatarHistory();
+				} else {
+					_chatProcess->avatarMaxId = last;
+					requestUserAvatars();
+				}
+			}
+		});
+	}).send();
+}
+
+void ApiWrap::requestChatAvatars() {
+	Expects(_chatProcess != nullptr);
+	mainRequest(MTPmessages_Search(
+		MTP_flags(0),
+		_chatProcess->info.input,
+		MTP_string(),
+		MTP_inputPeerEmpty(),
+		MTPInputPeer(),
+		MTPVector<MTPReaction>(),
+		MTPint(),
+		MTP_inputMessagesFilterChatPhotos(),
+		MTP_int(0),
+		MTP_int(0),
+		MTP_int(_chatProcess->avatarOffsetId),
+		MTP_int(0),
+		MTP_int(kMessagesSliceLimit),
+		MTP_int(0),
+		MTP_int(0),
+		MTP_long(0)
+	)).fail([=](const MTP::Error &) {
+		finishAvatarHistory();
+		return true;
+	}).done([=](const MTPmessages_Messages &result) {
+		Expects(_chatProcess != nullptr);
+		result.match([&](const MTPDmessages_messagesNotModified &) {
+			finishAvatarHistory();
+		}, [&](const auto &data) {
+			const auto &raw = data.vmessages().v;
+			if (raw.empty()) {
+				finishAvatarHistory();
+				return;
+			}
+			auto slice = Data::ParseMessagesSlice(
+				_chatProcess->context,
+				data.vmessages(),
+				data.vusers(),
+				data.vchats(),
+				_chatProcess->info.relativePath);
+			for (auto &message : slice.list) {
+				v::match(message.action.content,
+					[&](Data::ActionChatEditPhoto &action) {
+						auto &photo = action.photo;
+						photo.image.file.suggestedPath =
+							_chatProcess->info.relativePath
+							+ "avatars/avatar_"
+							+ QString::number(message.date) + '_'
+							+ QString::number(photo.id) + ".jpg";
+						_chatProcess->info.avatars.push_back(Data::AvatarChange{
+							.date = message.date,
+							.photo = std::move(photo),
+						});
+					}, [&](const Data::ActionChatDeletePhoto &) {
+						_chatProcess->info.avatars.push_back(Data::AvatarChange{
+							.date = message.date,
+							.removed = true,
+						});
+					}, [](const auto &) {});
+			}
+			const auto lastId = raw.back().match([](const auto &message) {
+				return message.vid().v;
+			});
+			if (raw.size() < kMessagesSliceLimit
+				|| lastId <= 0
+				|| lastId == _chatProcess->avatarOffsetId) {
+				finishAvatarHistory();
+			} else {
+				_chatProcess->avatarOffsetId = lastId;
+				requestChatAvatars();
+			}
+		});
+	}).send();
+}
+
+void ApiWrap::finishAvatarHistory() {
+	Expects(_chatProcess != nullptr);
+	auto &avatars = _chatProcess->info.avatars;
+	std::sort(avatars.begin(), avatars.end(), [](const auto &a, const auto &b) {
+		return a.date < b.date;
+	});
+	loadNextAvatar();
+}
+
+void ApiWrap::loadNextAvatar() {
+	Expects(_chatProcess != nullptr);
+	const auto &avatars = _chatProcess->info.avatars;
+	while (_chatProcess->avatarIndex < avatars.size()) {
+		auto &file = _chatProcess->info.avatars[
+			_chatProcess->avatarIndex].photo.image.file;
+		if (processFileLoad(
+				file,
+				Data::FileOrigin(),
+				{},
+				[=](const QString &path) { avatarFileDone(path); },
+				nullptr,
+				nullptr,
+				true)) {
+			++_chatProcess->avatarIndex;
+		} else {
+			return;
+		}
+	}
+	if (_chatProcess->start(_chatProcess->info)) {
 		requestMessagesSlice();
 	}
+}
+
+void ApiWrap::avatarFileDone(const QString &relativePath) {
+	Expects(_chatProcess != nullptr);
+	auto &file = _chatProcess->info.avatars[
+		_chatProcess->avatarIndex].photo.image.file;
+	file.relativePath = relativePath;
+	if (relativePath.isEmpty()) {
+		file.skipReason = Data::File::SkipReason::Unavailable;
+	}
+	++_chatProcess->avatarIndex;
+	loadNextAvatar();
 }
 
 void ApiWrap::finishExport(FnMut<void()> done) {
@@ -1963,15 +2191,16 @@ void ApiWrap::finishExport(FnMut<void()> done) {
 	)).done(std::move(done)).send();
 }
 
-void ApiWrap::skipFile(uint64 randomId) {
+bool ApiWrap::skipFile(uint64 randomId) {
 	if (!_fileProcess || _fileProcess->randomId != randomId) {
-		return;
+		return false;
 	}
 	LOG(("Export Info: File skipped."));
 	Assert(!_fileProcess->requests.empty());
 	Assert(_fileProcess->requestId != 0);
 	_mtp.request(base::take(_fileProcess->requestId)).cancel();
 	base::take(_fileProcess)->done(QString());
+	return true;
 }
 
 void ApiWrap::cancelExportFast() {
@@ -3410,7 +3639,8 @@ bool ApiWrap::processFileLoad(
 		Fn<bool(FileProgress)> progress,
 		FnMut<void(QString)> done,
 		Data::Message *message,
-		Data::Story *story) {
+		Data::Story *story,
+		bool alwaysDownload) {
 	using SkipReason = Data::File::SkipReason;
 
 	if (!file.relativePath.isEmpty()
@@ -3437,13 +3667,16 @@ bool ApiWrap::processFileLoad(
 		: story
 		? story->file().size
 		: file.size;
-	if (message && Data::SkipMessageByDate(*message, *_settings)) {
+	if (!alwaysDownload
+		&& message && Data::SkipMessageByDate(*message, *_settings)) {
 		file.skipReason = SkipReason::DateLimits;
 		return true;
-	} else if (!story && (_settings->media.types & type) != type) {
+	} else if (!alwaysDownload
+		&& !story && (_settings->media.types & type) != type) {
 		file.skipReason = SkipReason::FileType;
 		return true;
-	} else if (!story && fullSize > _settings->media.sizeLimit) {
+	} else if (!alwaysDownload
+		&& !story && fullSize > _settings->media.sizeLimit) {
 		// Don't load thumbs for large files that we skip.
 		file.skipReason = SkipReason::FileSize;
 		return true;
@@ -3706,7 +3939,7 @@ void ApiWrap::filePartRefreshReference(int64 offset) {
 		return;
 	}
 	if (!origin.messageId) {
-		error("FILE_REFERENCE error for non-message file.");
+		filePartUnavailable();
 		return;
 	}
 	if (origin.peer.type() == mtpc_inputPeerChannel

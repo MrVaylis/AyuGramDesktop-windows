@@ -26,6 +26,7 @@ struct Content {
 	};
 
 	std::vector<Row> rows;
+	QString doneSummary;
 
 	static const QString kDoneId;
 

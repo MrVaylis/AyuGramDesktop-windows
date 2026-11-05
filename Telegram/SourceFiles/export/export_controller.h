@@ -90,6 +90,9 @@ struct FinishedState {
 	QString path;
 	int filesCount = 0;
 	int64 bytesCount = 0;
+	int64 messagesExported = 0;
+	int64 messagesSkippedByDate = 0;
+	int64 filesSkippedManually = 0;
 };
 
 using State = std::variant<

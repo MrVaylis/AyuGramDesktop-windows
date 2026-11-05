@@ -169,6 +169,14 @@ Content ContentFromState(
 
 Content ContentFromState(const FinishedState &state) {
 	auto result = Content();
+	result.doneSummary = tr::lng_export_messages_summary(
+		tr::now,
+		lt_exported,
+		QString::number(state.messagesExported),
+		lt_dates,
+		QString::number(state.messagesSkippedByDate),
+		lt_manual,
+		QString::number(state.filesSkippedManually));
 	result.rows.push_back({
 		Content::kDoneId,
 		tr::lng_export_finished(tr::now),

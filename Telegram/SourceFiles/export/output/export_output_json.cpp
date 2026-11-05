@@ -2955,6 +2955,10 @@ Result JsonWriter::writeDialogsStart(const Data::DialogsInfo &data) {
 
 Result JsonWriter::writeDialogStart(const Data::DialogInfo &data) {
 	Expects(_output != nullptr);
+	if (const auto result = WriteAvatarManifest(data, _settings.path, _stats);
+		!result) {
+		return result;
+	}
 
 	if (!_settings.onlySinglePeer()) {
 		const auto result = validateDialogsMode(data.isLeftChannel);

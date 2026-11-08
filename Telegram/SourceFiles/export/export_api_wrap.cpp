@@ -3795,7 +3795,8 @@ void ApiWrap::filePartDone(int64 offset, const MTPupload_File &result) {
 	Expects(!_fileProcess->requests.empty());
 
 	if (result.type() == mtpc_upload_fileCdnRedirect) {
-		error("Cdn redirect is not supported.");
+		LOG(("Export Info: CDN redirect received; skipping unavailable file."));
+		filePartUnavailable();
 		return;
 	}
 	const auto &data = result.c_upload_file();

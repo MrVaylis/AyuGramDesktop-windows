@@ -133,9 +133,6 @@ void ResolveSettings(not_null<Main::Session*> session, Settings &settings) {
 	} else {
 		settings.forceSubPath = IsDefaultPath(session, settings.path);
 	}
-	if (!settings.onlySinglePeer()) {
-		settings.singlePeerFrom = settings.singlePeerTill = 0;
-	}
 }
 
 PanelController::PanelController(
@@ -402,6 +399,9 @@ rpl::producer<> PanelController::stopRequests() const {
 
 void PanelController::fillParams(const PasswordCheckState &state) {
 	_settings->singlePeer = state.singlePeer;
+	if (!_settings->onlySinglePeer()) {
+		_settings->singlePeerFrom = _settings->singlePeerTill = 0;
+	}
 }
 
 void PanelController::updateState(State &&state) {

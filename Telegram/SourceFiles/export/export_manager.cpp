@@ -116,9 +116,12 @@ void Manager::stopTask(Task *task) {
 	if (i == end(_tasks)) {
 		return;
 	}
-	_viewChanges.fire(nullptr);
+	const auto wasCurrent = (i + 1 == end(_tasks));
+	if (wasCurrent) {
+		_viewChanges.fire(nullptr);
+	}
 	_tasks.erase(i);
-	if (!_tasks.empty()) {
+	if (wasCurrent && !_tasks.empty()) {
 		_viewChanges.fire(_tasks.back()->panel.get());
 	}
 }

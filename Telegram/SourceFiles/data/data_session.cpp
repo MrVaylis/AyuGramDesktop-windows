@@ -3100,7 +3100,40 @@ void Session::updateEditedMessage(const MTPMessage &data) {
 		const auto unchanged = edit.richPage
 			? (Iv::FlattenRichPageSummary(edit.richPage) == msg)
 			: (edit.textWithEntities == msg);
-		if (unchanged || msg.empty()) {
+		const auto mediaChanged = edit.mtpMedia && edit.mtpMedia->match(
+			[&](const MTPDmessageMediaPhoto &data) {
+				const auto current = existing->media()
+					? existing->media()->photo()
+					: nullptr;
+				const auto photo = data.vphoto();
+				if (!photo) {
+					return current != nullptr;
+				}
+				const auto id = photo->match(
+					[](const MTPDphoto &value) { return value.vid().v; },
+					[](const MTPDphotoEmpty &value) { return value.vid().v; });
+				return !current || current->id != id;
+			},
+			[&](const MTPDmessageMediaDocument &data) {
+				const auto current = existing->media()
+					? existing->media()->document()
+					: nullptr;
+				const auto document = data.vdocument();
+				if (!document) {
+					return current != nullptr;
+				}
+				const auto id = document->match(
+					[](const MTPDdocument &value) { return value.vid().v; },
+					[](const MTPDdocumentEmpty &value) { return value.vid().v; });
+				return !current || current->id != id;
+			},
+			[&](const MTPDmessageMediaEmpty &) {
+				return existing->media()
+					&& (existing->media()->photo()
+						|| existing->media()->document());
+			},
+			[](const auto &) { return false; });
+		if (unchanged && !mediaChanged) {
 			goto proceed;
 		}
 

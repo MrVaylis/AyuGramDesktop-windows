@@ -10,6 +10,12 @@
 
 using ID = long long;
 
+enum class AyuMessageMediaType : int {
+	None,
+	Photo,
+	Document,
+};
+
 class AyuMessageBase
 {
 public:

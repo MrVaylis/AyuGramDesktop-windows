@@ -15,6 +15,7 @@ https://github.com/telegramdesktop/tdesktop/blob/master/LEGAL
 #include "base/bytes.h"
 #include "base/options.h"
 #include "base/random.h"
+#include "base/unixtime.h"
 #include <set>
 #include <deque>
 #include <variant>
@@ -1941,6 +1942,10 @@ void ApiWrap::requestMessagesRangeCount(
 		: MTP_flags(0);
 	const auto from = _settings->singlePeerFrom;
 	const auto till = _settings->singlePeerTill;
+	const auto minDate = (from > 0) ? from - 1 : 1;
+	const auto maxDate = (till > 0)
+		? till
+		: base::unixtime::now() + 1;
 	splitRequest(splitIndex, MTPmessages_Search(
 		flags,
 		peer,
@@ -1950,8 +1955,8 @@ void ApiWrap::requestMessagesRangeCount(
 		MTPVector<MTPReaction>(),
 		MTPint(),
 		MTP_inputMessagesFilterEmpty(),
-		MTP_int(from > 0 ? from - 1 : 0),
-		MTP_int(till),
+		MTP_int(minDate),
+		MTP_int(maxDate),
 		MTP_int(0),
 		MTP_int(0),
 		MTP_int(1),

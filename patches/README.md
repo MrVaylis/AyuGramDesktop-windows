@@ -4,9 +4,9 @@ Run `python Telegram/build/apply_ayu_patches.py` from the repository root after 
 
 | Dependency | Upstream commit | Local changes |
 | --- | --- | --- |
-| lib_ui | `1ff7be77d578aaf8ad17d2fa6e51bae1ee567c1b` | AyuGram UI settings, local emoji entities, streamer menu hook, wide chat styling, fonts and controls; People-11 Windows frame pacing, smooth scrolling, and asynchronous emoji compression. |
+| lib_ui | `caaa3f1eb20bab7ef838c6aea35db2397e8f3f07` | AyuGram UI settings, local emoji entities, streamer menu hook, wide chat styling, fonts and controls; People-11 Windows frame pacing, smooth scrolling, and asynchronous emoji compression, rebased onto upstream scroll APIs. |
 | codegen | `dbd1d53137cd581cfdbeebe93bcaf54abf55ec74` | AyuGram language-key scanning, cache version 2, and runtime wide-chat style values. |
-| libprisma | `086296336c69723f58ca6aa603434ef8cf682c39` | The PH4N7OMx grammar recursion limit also bounds greedy rematches; the upstream tokenization guard is retained. |
+| libprisma | `94640c63c20eacdf70e37e23198d9ab53c802ebd` | Upstream now provides the equivalent 32-level recursion guard and a bounded search budget; the patch helper verifies them without altering the source. |
 
 `lib_ui.patch` is a combined patch against the official lib_ui revision. It includes the AyuGram changes from `e3d058223aea0b68938a07a7d436d67aaf2b1b30` and the applicable People-11 `qt6-rhi` changes from `6241b491e54602166e9a5e8d8052b6dff342aeaf`. Upstream already enables Windows Qt RHI and implements Qt 6 custom window margins; those upstream implementations remain intact. Translucent-window handling is limited to Windows. The 2026-10-30 upstream update adds native fullscreen detection in `ui/platform/win/ui_window_win.cpp` without changing any file patched here.
 

@@ -9,7 +9,7 @@ from patch_prisma import main as patch_prisma
 PATCHES = (
     (
         "Telegram/lib_ui",
-        "1ff7be77d578aaf8ad17d2fa6e51bae1ee567c1b",
+        "caaa3f1eb20bab7ef838c6aea35db2397e8f3f07",
         "patches/lib_ui.patch",
     ),
     (
@@ -66,7 +66,7 @@ def main():
         state = apply_patch(root / relative, base, root / patch, args.check)
         print(f"{relative}: {state}")
     prisma_root = root / "Telegram/ThirdParty/libprisma"
-    prisma_base = "086296336c69723f58ca6aa603434ef8cf682c39"
+    prisma_base = "94640c63c20eacdf70e37e23198d9ab53c802ebd"
     actual = git(prisma_root, "rev-parse", "HEAD").stdout.strip()
     if actual != prisma_base:
         raise RuntimeError(f"libprisma: expected base {prisma_base}, found {actual}.")

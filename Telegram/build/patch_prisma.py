@@ -8,6 +8,12 @@ def replace_once(source, old, new):
 
 
 def patch_sources(header, source):
+    if "TokenList tokenize(State& state" in header:
+        if ("constexpr auto kMaxDepth = 32" not in source
+                or "state.depth >= kMaxDepth" not in source
+                or "state.searchesLeft" not in source):
+            raise RuntimeError("Incomplete upstream libprisma recursion guard.")
+        return header, source
     if "size_t depth = 0" in header:
         if "depth >= 32" not in source:
             raise RuntimeError("Incomplete libprisma recursion patch.")

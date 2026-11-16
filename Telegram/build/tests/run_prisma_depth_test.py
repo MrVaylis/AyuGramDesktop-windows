@@ -15,6 +15,15 @@ def main():
                      for name in ("SyntaxHighlighter.h", "SyntaxHighlighter.cpp"))
     patched = patch_sources(*original)
     assert patch_sources(*patched) == patched
+    if "TokenList tokenize(State& state" in patched[0]:
+        source = patched[1]
+        assert "constexpr auto kMaxDepth = 32" in source
+        assert "state.depth >= kMaxDepth" in source
+        assert "DepthGuard" in source
+        assert "state.searchesLeft" in source
+        assert "matchGrammar(state, text, tokenList" in source
+        print("Prisma upstream guards verified: depth, state lifetime and search budget.")
+        return
     assert "&nestedRematch, depth + 1" in patched[1]
     compiler = shutil.which("cl") or shutil.which("g++") or shutil.which("clang++")
     if not compiler:

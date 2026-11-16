@@ -1,5 +1,5 @@
 diff --git a/CMakeLists.txt b/CMakeLists.txt
-index c0ee144..5a877e5 100644
+index dabc463..755cf9c 100644
 --- a/CMakeLists.txt
 +++ b/CMakeLists.txt
 @@ -36,6 +36,9 @@ PRIVATE
@@ -380,7 +380,7 @@ index bb268d6..2f17087 100644
  	return static_cast<const QObject*>(this);
  }
 diff --git a/ui/effects/animations.h b/ui/effects/animations.h
-index 254bab9..a4dc326 100644
+index a544793..b920799 100644
 --- a/ui/effects/animations.h
 +++ b/ui/effects/animations.h
 @@ -16,6 +16,9 @@ namespace Ui {
@@ -393,7 +393,7 @@ index 254bab9..a4dc326 100644
  
  class Basic final {
  public:
-@@ -206,9 +209,17 @@ private:
+@@ -225,9 +228,17 @@ private:
  	void schedule();
  	void updateQueued();
  	void stopTimer();
@@ -580,10 +580,10 @@ index f434d61..8e243dd 100644
  		// DirectComposition composites swap chain only with alpha in it.
  		format.setAlphaBufferSize(8);
 diff --git a/ui/style/style_core_font.cpp b/ui/style/style_core_font.cpp
-index a8d68ed..e8e15a7 100644
+index e179ece..1de3823 100644
 --- a/ui/style/style_core_font.cpp
 +++ b/ui/style/style_core_font.cpp
-@@ -21,6 +21,11 @@
+@@ -23,6 +23,11 @@
  #include <glib.h>
  #endif // __has_include(<glib.h>)
  
@@ -595,7 +595,7 @@ index a8d68ed..e8e15a7 100644
  void style_InitFontsResource() {
  #ifdef Q_OS_MAC // Use resources from the .app bundle on macOS.
  
-@@ -122,7 +127,9 @@ bool LoadCustomFont(const QString &filePath) {
+@@ -124,7 +129,9 @@ bool LoadCustomFont(const QString &filePath) {
  }
  
  [[nodiscard]] QString ManualMonospaceFont() {
@@ -818,10 +818,10 @@ index df0dc58..8515f13 100644
  		QPointF pathV[] = {
  			{ vLeft, vTop + xSize - vSize + stroke },
 diff --git a/ui/widgets/elastic_scroll.cpp b/ui/widgets/elastic_scroll.cpp
-index cb5e573..8b32b01 100644
+index f72ffc5..5269582 100644
 --- a/ui/widgets/elastic_scroll.cpp
 +++ b/ui/widgets/elastic_scroll.cpp
-@@ -418,9 +418,16 @@ ElasticScroll::ElasticScroll(
+@@ -382,9 +382,16 @@ ElasticScroll::ElasticScroll(
  , _position(Position{ 0, 0 })
  , _movement(Movement::None) {
  	setAttribute(Qt::WA_AcceptTouchEvents);
@@ -838,7 +838,7 @@ index cb5e573..8b32b01 100644
  		tryScrollTo(from, false);
  	}, _bar->lifetime());
  }
-@@ -886,6 +893,7 @@ bool ElasticScroll::handleWheelEvent(
+@@ -850,6 +857,7 @@ bool ElasticScroll::handleWheelEvent(
  		WheelSource source) {
  	if (_customWheelProcess
  		&& _customWheelProcess(static_cast<QWheelEvent*>(e.get()))) {
@@ -846,7 +846,7 @@ index cb5e573..8b32b01 100644
  		return true;
  	}
  	const auto touch = (source != WheelSource::Wheel);
-@@ -951,6 +959,9 @@ bool ElasticScroll::handleWheelEvent(
+@@ -915,6 +923,9 @@ bool ElasticScroll::handleWheelEvent(
  		ignore = true;
  		delta = 0;
  	}
@@ -856,7 +856,7 @@ index cb5e573..8b32b01 100644
  	if (phase == Qt::NoScrollPhase) {
  		if (_overscroll == currentOverscrollDefault()) {
  			const auto weak = base::make_weak(this);
-@@ -958,10 +969,25 @@ bool ElasticScroll::handleWheelEvent(
+@@ -922,10 +933,25 @@ bool ElasticScroll::handleWheelEvent(
  			if (!weak) {
  				return true;
  			}
@@ -885,7 +885,7 @@ index cb5e573..8b32b01 100644
  		}
  		return true;
  	}
-@@ -1217,6 +1243,7 @@ bool ElasticScroll::filterOutTouchEvent(QEvent *e) {
+@@ -1181,6 +1207,7 @@ bool ElasticScroll::filterOutTouchEvent(QEvent *e) {
  }
  
  void ElasticScroll::handleTouchEvent(QTouchEvent *e) {
@@ -992,28 +992,29 @@ index f83e34e..730aa05 100644
  }()) {
  	Expects(_helper != nullptr);
 diff --git a/ui/widgets/scroll_area.cpp b/ui/widgets/scroll_area.cpp
-index 36af139..734a03e 100644
+index 67ff1f9..0dd3291 100644
 --- a/ui/widgets/scroll_area.cpp
 +++ b/ui/widgets/scroll_area.cpp
-@@ -17,9 +17,15 @@
+@@ -18,8 +18,16 @@
  #include <QtGui/QScreen>
  #include <QtGui/QWindow>
  
 +#include <cmath>
 +
  namespace Ui {
- namespace {
  
++namespace {
 +// Critically damped: from rest a notch peaks in speed after 1 / omega ms
 +// and settles within about 7 / omega ms, without overshooting.
 +constexpr auto kDiscreteScrollOmega = 0.03; // per ms
++} // namespace
 +
- [[nodiscard]] int ComputeScrollTo(
+ int ComputeScrollTo(
  		int toFrom,
  		int toTill,
-@@ -59,6 +65,72 @@ namespace {
- 
- } // namespace
+@@ -57,6 +65,71 @@ int ComputeScrollTo(
+ 	return scToFrom;
+ }
  
 +DiscreteScrollAnimation::DiscreteScrollAnimation(Callbacks callbacks)
 +: _callbacks(std::move(callbacks))
@@ -1080,11 +1081,10 @@ index 36af139..734a03e 100644
 +	_velocity = 0.;
 +	_lastApplied = -1;
 +}
-+
  // flick scroll taken from http://qt-project.org/doc/qt-4.8/demos-embedded-anomaly-src-flickcharm-cpp.html
  
  ScrollShadow::ScrollShadow(ScrollArea *parent, const style::ScrollArea *st)
-@@ -444,6 +516,20 @@ ScrollArea::ScrollArea(
+@@ -442,6 +515,20 @@ ScrollArea::ScrollArea(
  		_touchTimer.setCallback([=] { _touchRightButton = true; });
  		_touchScrollTimer.setCallback([=] { touchScrollTimer(); });
  	}
@@ -1105,7 +1105,7 @@ index 36af139..734a03e 100644
  }
  
  void ScrollArea::touchDeaccelerate(int32 elapsed) {
-@@ -624,6 +710,7 @@ bool ScrollArea::viewportEvent(QEvent *e) {
+@@ -622,6 +709,7 @@ bool ScrollArea::viewportEvent(QEvent *e) {
  	} else if (e->type() == QEvent::Wheel) {
  		const auto ev = static_cast<QWheelEvent*>(e);
  		if (_customWheelProcess && _customWheelProcess(ev)) {
@@ -1113,7 +1113,7 @@ index 36af139..734a03e 100644
  			return true;
  		}
  		if (_wheelDirectionLocked || _crossAxisWheelProcess) {
-@@ -649,6 +736,13 @@ bool ScrollArea::viewportEvent(QEvent *e) {
+@@ -647,6 +735,13 @@ bool ScrollArea::viewportEvent(QEvent *e) {
  						phase);
  			}
  		}
@@ -1127,7 +1127,7 @@ index 36af139..734a03e 100644
  	}
  	return QScrollArea::viewportEvent(e);
  }
-@@ -673,6 +767,7 @@ bool ScrollArea::filterOutTouchEvent(QEvent *e) {
+@@ -671,6 +766,7 @@ bool ScrollArea::filterOutTouchEvent(QEvent *e) {
  }
  
  void ScrollArea::touchEvent(QTouchEvent *e) {
@@ -1135,7 +1135,7 @@ index 36af139..734a03e 100644
  	if (!e->touchPoints().isEmpty()) {
  		_touchPrevPos = _touchPos;
  		_touchPos = e->touchPoints().cbegin()->screenPos().toPoint();
-@@ -962,6 +1057,9 @@ bool ScrollArea::focusNextPrevChild(bool next) {
+@@ -960,6 +1056,9 @@ bool ScrollArea::focusNextPrevChild(bool next) {
  }
  
  void ScrollArea::setMovingByScrollBar(bool movingByScrollBar) {

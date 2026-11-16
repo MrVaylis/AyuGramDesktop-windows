@@ -698,6 +698,54 @@ void FinalizeOwnerSelection(
 		: 0;
 }
 
+struct QuoteChildSetup {
+	int overhead = 0;
+	int paddingWidth = 0;
+	int pullquoteReserveWidth = 0;
+	int childWidth = 0;
+	LayoutContext childContext;
+};
+
+[[nodiscard]] QuoteChildSetup PrepareQuoteChild(
+		const PreparedBlock &prepared,
+		const style::Markdown &st,
+		int availableWidth,
+		const LayoutContext &context,
+		int &visibleScrollViewportWidth) {
+	const auto depthDelta = std::max(
+		prepared.visualDepth - context.quoteDepth,
+		0);
+	const auto overhead = depthDelta * st.quoteIndent;
+	const auto padding = prepared.pullquote
+		? st.pullquote.padding
+		: BlockquotePadding(st.body.blockquote);
+	const auto paddingWidth = HorizontalMarginsWidth(padding);
+	const auto pullquoteReserveWidth = prepared.pullquote
+		? (2 * PullquoteIconReserveWidth(st.body.blockquote))
+		: 0;
+	auto childWidth = std::max(
+		availableWidth - overhead - paddingWidth - pullquoteReserveWidth,
+		1);
+	if (prepared.pullquote) {
+		childWidth = std::min(childWidth, std::max(st.pullquote.maxWidth, 1));
+	}
+	visibleScrollViewportWidth = childWidth;
+	auto childContext = context;
+	childContext.quoteDepth = prepared.visualDepth + 1;
+	childContext.tightList = false;
+	PrepareNestedContext(&childContext, 0, childWidth);
+	childContext.hideEmptyQuoteAuthor = QuoteBodyEmptyForLayout(
+		prepared,
+		childContext);
+	return {
+		.overhead = overhead,
+		.paddingWidth = paddingWidth,
+		.pullquoteReserveWidth = pullquoteReserveWidth,
+		.childWidth = childWidth,
+		.childContext = std::move(childContext),
+	};
+}
+
 void FinalizeQuoteWidths(
 		WidthAnalysisNode &analysis,
 		const PreparedBlock &prepared,
@@ -871,6 +919,65 @@ void FinalizeListWidths(
 		analysis.scrollOwnerOverflowWidth,
 		analysis.outerScrollViewportMinimumWidth,
 	});
+}
+
+struct DetailsWidths {
+	int bodyPaddingWidth = 0;
+	int bodyMinimumWidth = 1;
+	int bodyPreferredWidth = 1;
+	int childRequiredWidth = 1;
+	bool childNeedsScrollOwner = false;
+};
+
+void FinalizeDetailsBodyWidths(
+		WidthAnalysisNode &analysis,
+		DetailsWidths &widths,
+		QMargins bodyPadding,
+		const style::Markdown &st) {
+	widths.childRequiredWidth
+		= MaxUnresolvedChildOuterScrollViewportMinimumWidth(
+			analysis.children);
+	widths.childNeedsScrollOwner = (widths.childRequiredWidth > 1);
+	analysis.contentMinimumWidth = MaxChildOuterMinimumWidth(
+		analysis.children);
+	analysis.contentPreferredWidth = MaxChildOuterPreferredWidth(
+		analysis.children);
+	widths.bodyMinimumWidth = ContainerMinimumWidth(
+		analysis.contentMinimumWidth,
+		bodyPadding);
+	widths.bodyPreferredWidth = std::max(analysis.contentPreferredWidth, 1)
+		+ widths.bodyPaddingWidth;
+	analysis.scrollViewportMinimumWidth = widths.childNeedsScrollOwner
+		? ReadableScrollViewportMinimumWidth(
+			analysis.contentPreferredWidth,
+			st)
+		: 1;
+	analysis.outerScrollViewportMinimumWidth = widths.bodyPaddingWidth
+		+ (widths.childNeedsScrollOwner ? widths.childRequiredWidth : 1);
+	analysis.scrollOwnerMinimumWidth = std::max({
+		widths.bodyMinimumWidth,
+		analysis.outerScrollViewportMinimumWidth,
+	});
+}
+
+void FinalizeDetailsWidths(
+		WidthAnalysisNode &analysis,
+		const DetailsWidths &widths,
+		const PreparedBlock &prepared,
+		int headerMinimumWidth) {
+	analysis.outerMinimumWidth = std::max(
+		headerMinimumWidth,
+		widths.bodyMinimumWidth);
+	analysis.outerPreferredWidth = std::max(
+		headerMinimumWidth,
+		widths.bodyPreferredWidth);
+	analysis.scrollOwnerOverflowWidth
+		= widths.childNeedsScrollOwner
+		? widths.bodyPaddingWidth
+			+ std::max(analysis.contentMinimumWidth, widths.childRequiredWidth)
+		: widths.bodyMinimumWidth;
+	analysis.ownerEligible = !prepared.collapsed
+		&& !prepared.children.empty();
 }
 
 [[nodiscard]] WidthAnalysisNode AnalyzeBlock(
@@ -1059,15 +1166,15 @@ void FinalizeListWidths(
 			inlineFormulaObjects,
 			mediaRuntime,
 			st,
-			childWidth,
-			childContext);
+			quote.childWidth,
+			quote.childContext);
 		FinalizeQuoteWidths(
 			analysis,
 			prepared,
 			st,
-			overhead,
-			paddingWidth,
-			pullquoteReserveWidth);
+			quote.overhead,
+			quote.paddingWidth,
+			quote.pullquoteReserveWidth);
 	} break;
 	case PreparedBlockKind::Details: {
 		const auto headerPadding = DetailsHeaderPadding(context, st);
@@ -1490,9 +1597,9 @@ void FinalizeListWidths(
 			analysis,
 			prepared,
 			st,
-			overhead,
-			paddingWidth,
-			pullquoteReserveWidth);
+			quote.overhead,
+			quote.paddingWidth,
+			quote.pullquoteReserveWidth);
 	} break;
 	case PreparedBlockKind::Details: {
 		const auto headerPadding = DetailsHeaderPadding(context, st);

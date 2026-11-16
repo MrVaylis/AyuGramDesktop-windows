@@ -2596,6 +2596,7 @@ void ApiWrap::requestMessagesSlice() {
 		requestChatMessages(
 			_chatProcess->info.splits[_chatProcess->localSplitIndex],
 			0,
+			_settings->singlePeerFrom,
 			0,
 			1,
 			[=](const MTPmessages_Messages &result) {
@@ -2612,10 +2613,13 @@ void ApiWrap::requestMessagesSlice() {
 					? beforeId + 1
 					: 1;
 				requestMessagesSlice();
-			},
-			_settings->singlePeerFrom);
+			});
 		return;
 	}
+	const auto offsetDate = (_chatProcess->largestIdPlusOne == 1
+		&& _settings->singlePeerFrom > 0)
+		? (_settings->singlePeerFrom - 1)
+		: 0;
 	requestChatMessages(
 		_chatProcess->info.splits[_chatProcess->localSplitIndex],
 		_chatProcess->largestIdPlusOne,
@@ -2654,8 +2658,7 @@ void ApiWrap::requestChatMessages(
 		int offsetDate,
 		int addOffset,
 		int limit,
-		FnMut<void(MTPmessages_Messages&&)> done,
-		TimeId offsetDate) {
+		FnMut<void(MTPmessages_Messages&&)> done) {
 	Expects(_chatProcess != nullptr);
 
 	_chatProcess->requestDone = std::move(done);
@@ -2719,8 +2722,7 @@ void ApiWrap::requestChatMessages(
 						offsetDate,
 						addOffset,
 						limit,
-						base::take(_chatProcess->requestDone),
-						offsetDate);
+						base::take(_chatProcess->requestDone));
 					return true;
 				}
 			}

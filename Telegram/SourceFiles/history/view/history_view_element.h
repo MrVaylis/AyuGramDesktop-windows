@@ -34,6 +34,7 @@ struct ReactionId;
 
 namespace Iv {
 struct BuiltRichQuote;
+struct RichPageBlocksSlice;
 } // namespace Iv
 
 namespace Window {

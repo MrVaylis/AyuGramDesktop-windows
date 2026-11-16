@@ -652,8 +652,8 @@ void Filler::addInfo() {
 	} else if (_controller->adaptive().isThreeColumn()) {
 		const auto thread = _controller->activeChatCurrent().thread();
 		if (thread && !thread->asSublist() && thread == _thread) {
-			if (Core::App().settings().thirdSectionInfoEnabled()
-				|| Core::App().settings().tabbedReplacedWithInfo()) {
+			if (_controller->columns().thirdSectionInfoEnabled()
+				|| _controller->columns().tabbedReplacedWithInfo()) {
 				return;
 			}
 		}

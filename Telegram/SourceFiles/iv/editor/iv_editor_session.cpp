@@ -1790,10 +1790,14 @@ private:
 			.parent = static_cast<Ui::RpWidget*>(parent.data()),
 			.config = config,
 			.chooseLabel = tr::lng_maps_point_send(),
-			.session = _session,
-			.callback = [weak, editorPointer](::Data::InputVenue venue) {
+			.callback = [weak, editorPointer](
+					::Data::LocationPoint point,
+					QString address) {
 				if (const auto session = weak.get()) {
-					session->applyMapSelection(editorPointer, std::move(venue));
+					session->applyMapSelection(
+						editorPointer,
+						point,
+						std::move(address));
 				}
 			},
 			.quit = [] { Shortcuts::Launch(Shortcuts::Command::Quit); },
@@ -2995,12 +2999,6 @@ private:
 			const ::Data::LocationPoint &point,
 			::Data::InputVenue venue) const {
 		const auto preview = ::Data::ComputeLocation(point);
-		auto caption = QString();
-		if (!venue.title.isEmpty() && !venue.address.isEmpty()) {
-			caption = venue.title + u"\n"_q + venue.address;
-		} else {
-			caption = !venue.title.isEmpty() ? venue.title : venue.address;
-		}
 		auto block = RichPage::Block();
 		block.kind = RichPage::BlockKind::Map;
 		block.latitude = point.lat();
@@ -3009,7 +3007,7 @@ private:
 		block.width = preview.width;
 		block.height = preview.height;
 		block.zoom = preview.zoom;
-		block.caption = ToRichText(std::move(caption));
+		block.caption = ToRichText(std::move(address));
 		return block;
 	}
 

@@ -2139,10 +2139,22 @@ QString TryConvertUrlToLocal(QString url) {
 		const auto protocol = tonsiteMatch->captured(1);
 		return u"tonsite://"_q + url.mid(protocol.size());
 	}
-	auto subdomainMatch = regex_match(u"^(https?://)?([a-zA-Z0-9\\_]+)\\.t\\.me(/\\d+)?/?(\\?.+)?"_q, url, matchOptions);
+	auto subdomainMatch = regex_match(u"^(https?://)?([a-zA-Z0-9\\_]+)\\.t\\.me"_q, url, matchOptions);
 	if (subdomainMatch) {
 		const auto name = subdomainMatch->captured(2);
 		if (name.size() > 1 && name != "www") {
+			const auto protocol = subdomainMatch->captured(1);
+			auto tail = url.mid(
+				protocol.size() + name.size() + u".t.me"_q.size());
+			const auto fragment = tail.indexOf('#');
+			if (fragment >= 0) {
+				tail.truncate(fragment);
+			}
+			if (!tail.isEmpty()
+				&& !tail.startsWith('/')
+				&& !tail.startsWith('?')) {
+				return url;
+			}
 			const auto result = TryConvertUrlToLocal(
 				subdomainMatch->captured(1)
 				+ "t.me/"

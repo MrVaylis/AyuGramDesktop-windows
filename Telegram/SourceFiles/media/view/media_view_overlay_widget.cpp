@@ -1116,6 +1116,19 @@ void OverlayWidget::setupWindow() {
 		}
 	}, lifetime());
 
+	// System maximize means full screen here, system restore leaves it.
+	_window->systemCommandRequests(
+	) | rpl::on_next([=](not_null<Ui::Platform::SystemCommandRequest*> r) {
+		using Command = Ui::Platform::SystemCommand;
+		if (r->command == Command::Maximize && !_fullscreen) {
+			r->handled = true;
+			toggleFullScreen(true);
+		} else if (r->command == Command::Restore && _fullscreen) {
+			r->handled = true;
+			toggleFullScreen(false);
+		}
+	}, lifetime());
+
 	_window->setMinimumSize(
 		{ st::mediaviewMinWidth, st::mediaviewMinHeight });
 
@@ -3942,7 +3955,8 @@ auto OverlayWidget::sharedMediaKey() const -> std::optional<SharedMediaKey> {
 				: (_message->id - ServerMaxMsgId))
 		};
 	};
-	if (!_message->isRegular() && !isScheduled) {
+	if (!_message->isRegular()
+		&& (!isScheduled || _message->isSending() || _message->hasFailed())) {
 		return std::nullopt;
 	}
 	return sharedMediaType() | keyForType;
@@ -8452,7 +8466,7 @@ bool OverlayWidget::updateOverState(Over newState) {
 
 void OverlayWidget::updateOver(QPoint pos) {
 	ClickHandlerPtr lnk;
-	ClickHandlerHost *lnkhost = nullptr;
+	auto lnkhost = (ClickHandlerHost*)nullptr;
 	if (isSaveMsgShown() && _saveMsg.contains(pos)) {
 		auto textState = _saveMsgText.getState(pos - _saveMsg.topLeft() - QPoint(st::mediaviewSaveMsgPadding.left(), st::mediaviewSaveMsgPadding.top()), _saveMsg.width() - st::mediaviewSaveMsgPadding.left() - st::mediaviewSaveMsgPadding.right());
 		lnk = textState.link;

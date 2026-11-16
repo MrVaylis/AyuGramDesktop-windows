@@ -13,6 +13,7 @@ https://github.com/telegramdesktop/tdesktop/blob/master/LEGAL
 #include "base/qt/qt_possible_keys.h"
 #include "core/application.h"
 #include "core/version.h"
+#include "lang/lang_keys.h"
 #include "mainwindow.h"
 #include "mainwidget.h"
 #include "window/window_controller.h"

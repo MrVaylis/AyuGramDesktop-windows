@@ -407,7 +407,13 @@ void Panel::initWindow() {
 				toggleFullScreen();
 			}
 		} else if (type == QEvent::WindowStateChange) {
+			const auto was = static_cast<QWindowStateChangeEvent*>(
+				e.get())->oldState();
 			updateFullScreen();
+			if ((was & Qt::WindowFullScreen)
+				!= (window()->windowState() & Qt::WindowFullScreen)) {
+				updateControlsGeometry();
+			}
 		}
 		return base::EventFilterResult::Continue;
 	}, lifetime());

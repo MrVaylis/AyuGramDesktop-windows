@@ -351,7 +351,8 @@ void ForumTopic::setRealRootId(MsgId realId) {
 	if (_rootId != realId) {
 		_rootId = realId;
 		_lastKnownServerMessageId = realId;
-		_replies = std::make_shared<RepliesList>(history(), _rootId);
+		_replies = std::make_shared<RepliesList>(history(), _rootId, this);
+		_replies->markJustCreated();
 		if (_sendActionPainter) {
 			_sendActionPainter->setTopic(nullptr);
 		}
@@ -405,6 +406,7 @@ void ForumTopic::applyTopic(const MTPDforumTopic &data) {
 
 	applyIsMy(data.is_my());
 	setClosed(data.is_closed());
+	setHidden(data.is_hidden());
 
 	if (!min) {
 		owner().setPinnedFromEntryList(this, data.is_pinned());

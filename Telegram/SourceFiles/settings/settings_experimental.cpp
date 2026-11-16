@@ -640,25 +640,23 @@ void Experimental::fillTopBarMenu(const Ui::Menu::MenuCallback &addAction) {
 			});
 		},
 		&st::menuIconCopy);
-	if (!DecodeOptionsFromText(QGuiApplication::clipboard()->text()).ok) {
-		return;
-	}
+	const auto reload = [=] {
+		_reloadOptionsRequests.fire({});
+	};
 	addAction(
 		u"Import"_q,
 		[=] {
-			const auto decoded = DecodeOptionsFromText(
+			const auto result = ImportOptions(
 				QGuiApplication::clipboard()->text());
-			if (!decoded.ok) {
-				window->showToast(u"Clipboard does not contain "
-					"a valid experimental settings code."_q);
+			if (result == ImportResult::Invalid) {
+				window->show(Box(ImportOptionsBox, window, reload));
 				return;
-			}
-			if (!base::options::deserialize(decoded.json)) {
+			} else if (result == ImportResult::Unsupported) {
 				window->showToast(u"Experimental settings code is valid"
 					", but data format is not supported."_q);
 				return;
 			}
-			_reloadOptionsRequests.fire({});
+			reload();
 			window->showToast(u"Experimental settings imported "
 				"from code in clipboard."_q);
 		},

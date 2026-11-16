@@ -254,6 +254,9 @@ private:
 		FullMsgId,
 		std::vector<DelayedByTopicMessage>> _creatingTopics;
 	base::flat_map<FullMsgId, MsgId> _createdTopicIds;
+	base::flat_map<
+		FullMsgId,
+		std::vector<DelayedByTopicMessage>> _delayedByReplyTarget;
 	base::flat_set<mtpRequestId> _creatingTopicRequests;
 
 	base::flat_map<

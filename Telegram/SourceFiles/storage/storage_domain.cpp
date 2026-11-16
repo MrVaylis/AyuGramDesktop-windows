@@ -15,6 +15,7 @@ https://github.com/telegramdesktop/tdesktop/blob/master/LEGAL
 #include "main/main_account.h"
 #include "base/openssl_help.h"
 #include "base/random.h"
+#include "tgw/tgw_storage.h"
 
 namespace Storage {
 

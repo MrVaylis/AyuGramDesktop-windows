@@ -381,6 +381,7 @@ private:
 		bool useCurrentWebPageDraft,
 		Api::SendOptions options,
 		Fn<void()> done);
+	void sendReplyToForward(Api::SendOptions options);
 	void sendRichDraft(
 		std::shared_ptr<const Iv::RichPage> page,
 		Api::SendOptions options);
@@ -408,6 +409,8 @@ private:
 	[[nodiscard]] MsgId resolveTopicRootId(const FullReplyTo &replyTo) const;
 	[[nodiscard]] MsgId resolvedTopicRootId() const;
 	[[nodiscard]] Data::ForumTopic *resolvedTopic();
+	[[nodiscard]] bool monoforumReplyMissing() const;
+	[[nodiscard]] bool monoforumReplyRequired() const;
 	void refreshCanSendMessages();
 	void refreshResolvedTopicRootState();
 	void setKeyboardReplyTo(HistoryItem *item);

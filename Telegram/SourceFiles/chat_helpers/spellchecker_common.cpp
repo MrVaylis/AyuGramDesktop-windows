@@ -303,7 +303,7 @@ void DownloadDictionaryInBackground(
 
 		DownloadDictionaryInBackground(session, counter, langs, done);
 	};
-	if (DictionaryExists(id)) {
+	if (DictionaryExists(id) && !(force && IsSupportedLang(id))) {
 		destroyer();
 		return;
 	}

@@ -173,7 +173,11 @@ void RenameFileBox(
 		field->setFocusFast();
 	});
 	const auto save = [=] {
-		const auto newName = field->getLastText().trimmed();
+		auto newName = field->getLastText().trimmed();
+		if (!extension.isEmpty()
+			&& newName.endsWith(extension, Qt::CaseInsensitive)) {
+			newName.chop(extension.size());
+		}
 		if (newName.isEmpty()) {
 			field->showError();
 			return;
@@ -954,6 +958,20 @@ void SendFilesBox::prepare() {
 		if (!_confirmed && _cancelled2Callback && !text.empty()) {
 			_cancelled2Callback(std::move(text));
 		}
+	}, lifetime());
+
+	Shortcuts::Requests(
+	) | rpl::filter([=] {
+		return _stashCallback
+			&& isVisible()
+			&& Ui::AppInFocus()
+			&& window()->isActiveWindow();
+	}) | rpl::on_next([=](not_null<Shortcuts::Request*> request) {
+		using Command = Shortcuts::Command;
+		request->check(Command::StashMessage, 2) && request->handle([=] {
+			stash();
+			return true;
+		});
 	}, lifetime());
 
 	Shortcuts::Requests(

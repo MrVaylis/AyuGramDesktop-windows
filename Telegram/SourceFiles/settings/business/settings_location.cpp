@@ -237,7 +237,7 @@ void Location::chooseOnMap() {
 		strong->activate();
 		return;
 	}
-	const auto callback = [=](Data::InputVenue venue) {
+	const auto callback = [=](Data::LocationPoint point, QString address) {
 		auto copy = _data.current();
 		copy.point = Data::LocationPoint::FromCoordinates(
 			venue.lat,
@@ -257,7 +257,6 @@ void Location::chooseOnMap() {
 		.parent = controller()->widget(),
 		.config = _config,
 		.chooseLabel = tr::lng_maps_point_set(),
-		.session = session,
 		.initial = initial,
 		.callback = crl::guard(this, callback),
 		.quit = [] { Shortcuts::Launch(Shortcuts::Command::Quit); },

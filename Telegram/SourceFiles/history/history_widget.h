@@ -23,6 +23,7 @@ https://github.com/telegramdesktop/tdesktop/blob/master/LEGAL
 #include "ui/effects/message_sending_history.h"
 #include "ui/widgets/fields/input_field.h"
 #include "mtproto/sender.h"
+#include "tgw/tgw_scroll.h"
 
 enum class SendMediaType;
 class MessageLinksParser;
@@ -181,7 +182,7 @@ public:
 	void leaveToChildEvent(QEvent *e, QWidget *child) override;
 
 	bool isItemCompletelyHidden(HistoryItem *item) const;
-	void updateTopBarSelection();
+	void updateTopBarSelection(bool keepFocus = false);
 	void updateTopBarChooseForReport();
 	bool handleDrawToReplyRequest(Data::DrawToReplyRequest request);
 
@@ -198,6 +199,7 @@ public:
 	void delayedShowAt(MsgId showAtMsgId, const Window::SectionShow &params);
 
 	bool updateReplaceMediaButton();
+	void startMediaReplace();
 	void updateFieldPlaceholder();
 
 	bool confirmSendingFiles(const QStringList &files);
@@ -751,9 +753,13 @@ private:
 	void setEditMsgId(MsgId msgId);
 
 	friend class HistoryInner;
+	friend class Tgw::ListScroll;
 	HistoryItem *getItemFromHistoryOrMigrated(MsgId genericMsgId) const;
 	void animatedScrollToItem(MsgId msgId);
-	void animatedScrollToY(int scrollTo, HistoryItem *attachTo = nullptr);
+	void animatedScrollToY(
+		int scrollTo,
+		HistoryItem *attachTo = nullptr,
+		Fn<std::optional<int>()> placement = nullptr);
 
 	// when scroll position or scroll area size changed this method
 	// updates the boundings of the visible area in HistoryInner
@@ -908,6 +914,7 @@ private:
 
 	crl::time _lastUserScrolled = 0;
 	bool _synteticScrollEvent = false;
+	Tgw::ScrollFlight _scrollToFlight;
 	Ui::Animations::Simple _scrollToAnimation;
 
 	HistoryView::CornerButtons _cornerButtons;

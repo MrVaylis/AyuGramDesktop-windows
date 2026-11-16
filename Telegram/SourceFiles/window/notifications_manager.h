@@ -112,6 +112,12 @@ public:
 	void clearIncomingFromTopic(not_null<Data::ForumTopic*> topic);
 	void clearIncomingFromSublist(not_null<Data::SavedSublist*> sublist);
 	void clearIncomingFromHistory(not_null<History*> history);
+	void clearReadFromTopic(
+		not_null<Data::ForumTopic*> topic,
+		MsgId readTillId);
+	void clearReadFromSublist(
+		not_null<Data::SavedSublist*> sublist,
+		MsgId readTillId);
 	void clearFromSession(not_null<Main::Session*> session);
 	void clearFromItem(not_null<HistoryItem*> item);
 	void clearAll();
@@ -138,6 +144,7 @@ public:
 
 private:
 	struct Waiter;
+	struct Alert;
 
 	struct SkipState {
 		enum Value {
@@ -181,6 +188,12 @@ private:
 	};
 
 	void clearForThreadIf(Fn<bool(not_null<Data::Thread*>)> predicate);
+	void clearReadIncoming(
+		not_null<Data::Thread*> thread,
+		Fn<bool(not_null<HistoryItem*>)> read);
+	void rememberShownIncoming(
+		not_null<Data::Thread*> thread,
+		not_null<HistoryItem*> item);
 
 	[[nodiscard]] SkipState skipNotification(
 		Data::ItemNotification notification) const;

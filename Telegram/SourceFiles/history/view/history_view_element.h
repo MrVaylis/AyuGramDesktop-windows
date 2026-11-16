@@ -11,7 +11,6 @@ https://github.com/telegramdesktop/tdesktop/blob/master/LEGAL
 #include "base/runtime_composer.h"
 #include "base/flags.h"
 #include "base/weak_ptr.h"
-#include "iv/iv_rich_page.h"
 #include "ui/userpic_view.h"
 
 // AyuGram includes
@@ -685,7 +684,8 @@ public:
 	[[nodiscard]] virtual bool toggleSelectionByHandlerClick(
 		const ClickHandlerPtr &handler) const;
 	[[nodiscard]] virtual bool allowTextSelectionByHandler(
-		const ClickHandlerPtr &handler) const;
+		const ClickHandlerPtr &handler,
+		bool fromTouch) const;
 
 	[[nodiscard]] bool usesBubblePattern(const PaintContext &context) const;
 

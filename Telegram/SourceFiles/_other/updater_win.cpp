@@ -529,6 +529,10 @@ int APIENTRY wWinMain(HINSTANCE instance, HINSTANCE prevInstance, LPWSTR cmdPara
 			writeLog(L"Invalid update process arguments; "
 				L"continuing without process handoff.");
 		}
+		if (!processArgumentsValid) {
+			writeLog(L"Invalid update process arguments; "
+				L"continuing without process handoff.");
+		}
 		if (needupdate) writeLog(L"Need to update!");
 		if (autostart) writeLog(L"From autostart!");
 		if (writeprotected) writeLog(L"Write Protected folder!");

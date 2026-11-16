@@ -27,6 +27,23 @@ namespace {
 	});
 }
 
+[[nodiscard]] Core::CloudPasswordResult GeneratePasswordCheck(
+		const QString &password,
+		const Core::CloudPasswordState &latestState) {
+	if (password.isEmpty() || !latestState.hasPassword) {
+		// ComputeCloudPasswordHash() aborts on the passwordless null algorithm.
+		return Core::CloudPasswordResult{
+			MTP_inputCheckPasswordEmpty()
+		};
+	}
+	const auto hash = Core::ComputeCloudPasswordHash(
+		latestState.mtp.request.algo,
+		bytes::make_span(password.toUtf8()));
+	return Core::ComputeCloudPasswordCheck(
+		latestState.mtp.request,
+		hash);
+}
+
 } // namespace
 
 CloudPassword::CloudPassword(not_null<ApiWrap*> api)
@@ -158,35 +175,6 @@ rpl::producer<CloudPassword::SetOk, QString> CloudPassword::set(
 		bool hasRecoveryEmail,
 		const QString &recoveryEmail) {
 
-	const auto generatePasswordCheck = [=](
-			const Core::CloudPasswordState &latestState) {
-		if (oldPassword.isEmpty() || !latestState.hasPassword) {
-			return Core::CloudPasswordResult{
-				MTP_inputCheckPasswordEmpty()
-			};
-		}
-		const auto hash = Core::ComputeCloudPasswordHash(
-			latestState.mtp.request.algo,
-			bytes::make_span(oldPassword.toUtf8()));
-		return Core::ComputeCloudPasswordCheck(
-			latestState.mtp.request,
-			hash);
-	};
-
-	const auto finish = [=](auto consumer, int unconfirmedEmailLengthCode) {
-		_api.request(MTPaccount_GetPassword(
-		)).done([=](const MTPaccount_Password &result) {
-			apply(ProcessMtpState(result));
-			if (unconfirmedEmailLengthCode) {
-				consumer.put_next(SetOk{ unconfirmedEmailLengthCode });
-			} else {
-				consumer.put_done();
-			}
-		}).fail([=](const MTP::Error &error) {
-			consumer.put_error_copy(error.type());
-		}).handleFloodErrors().send();
-	};
-
 	const auto sendMTPaccountUpdatePasswordSettings = [=](
 			const Core::CloudPasswordState &latestState,
 			const QByteArray &secureSecret,
@@ -233,10 +221,10 @@ rpl::producer<CloudPassword::SetOk, QString> CloudPassword::set(
 				MTP_bytes(newSecureSecret),
 				MTP_long(newSecureSecretId)));
 		_api.request(MTPaccount_UpdatePasswordSettings(
-			generatePasswordCheck(latestState).result,
+			GeneratePasswordCheck(oldPassword, latestState).result,
 			settings
 		)).done([=] {
-			finish(consumer, 0);
+			finishSet(consumer, 0);
 		}).fail([=](const MTP::Error &error) {
 			const auto &type = error.type();
 			const auto prefix = u"EMAIL_UNCONFIRMED_"_q;
@@ -245,7 +233,7 @@ rpl::producer<CloudPassword::SetOk, QString> CloudPassword::set(
 					type,
 					prefix.size()).toInt();
 
-				finish(consumer, codeLength);
+				finishSet(consumer, codeLength);
 			} else {
 				consumer.put_error_copy(type);
 			}
@@ -262,7 +250,7 @@ rpl::producer<CloudPassword::SetOk, QString> CloudPassword::set(
 					&& !newPassword.isEmpty()) {
 
 				_api.request(MTPaccount_GetPasswordSettings(
-					generatePasswordCheck(latestState).result
+					GeneratePasswordCheck(oldPassword, latestState).result
 				)).done([=](const MTPaccount_PasswordSettings &result) {
 					using Settings = MTPDaccount_passwordSettings;
 					const auto &data = result.match([&](
@@ -331,21 +319,7 @@ rpl::producer<rpl::no_value, QString> CloudPassword::check(
 		_api.request(MTPaccount_GetPassword(
 		)).done([=](const MTPaccount_Password &result) {
 			const auto latestState = ProcessMtpState(result);
-			const auto input = [&] {
-				if (password.isEmpty() || !latestState.hasPassword) {
-					// Without a password the algorithm is the null variant
-					// and ComputeCloudPasswordHash() aborts on it.
-					return Core::CloudPasswordResult{
-						MTP_inputCheckPasswordEmpty()
-					};
-				}
-				const auto hash = Core::ComputeCloudPasswordHash(
-					latestState.mtp.request.algo,
-					bytes::make_span(password.toUtf8()));
-				return Core::ComputeCloudPasswordCheck(
-					latestState.mtp.request,
-					hash);
-			}();
+			const auto input = GeneratePasswordCheck(password, latestState);
 
 			_api.request(MTPaccount_GetPasswordSettings(
 				input.result
@@ -405,35 +379,6 @@ rpl::producer<rpl::no_value, QString> CloudPassword::resendEmailCode() {
 rpl::producer<CloudPassword::SetOk, QString> CloudPassword::setEmail(
 		const QString &oldPassword,
 		const QString &recoveryEmail) {
-	const auto generatePasswordCheck = [=](
-			const Core::CloudPasswordState &latestState) {
-		if (oldPassword.isEmpty() || !latestState.hasPassword) {
-			return Core::CloudPasswordResult{
-				MTP_inputCheckPasswordEmpty()
-			};
-		}
-		const auto hash = Core::ComputeCloudPasswordHash(
-			latestState.mtp.request.algo,
-			bytes::make_span(oldPassword.toUtf8()));
-		return Core::ComputeCloudPasswordCheck(
-			latestState.mtp.request,
-			hash);
-	};
-
-	const auto finish = [=](auto consumer, int unconfirmedEmailLengthCode) {
-		_api.request(MTPaccount_GetPassword(
-		)).done([=](const MTPaccount_Password &result) {
-			apply(ProcessMtpState(result));
-			if (unconfirmedEmailLengthCode) {
-				consumer.put_next(SetOk{ unconfirmedEmailLengthCode });
-			} else {
-				consumer.put_done();
-			}
-		}).fail([=](const MTP::Error &error) {
-			consumer.put_error_copy(error.type());
-		}).handleFloodErrors().send();
-	};
-
 	const auto sendMTPaccountUpdatePasswordSettings = [=](
 			const Core::CloudPasswordState &latestState,
 			auto consumer) {
@@ -445,10 +390,10 @@ rpl::producer<CloudPassword::SetOk, QString> CloudPassword::setEmail(
 			MTP_string(recoveryEmail),
 			MTPSecureSecretSettings());
 		_api.request(MTPaccount_UpdatePasswordSettings(
-			generatePasswordCheck(latestState).result,
+			GeneratePasswordCheck(oldPassword, latestState).result,
 			settings
 		)).done([=] {
-			finish(consumer, 0);
+			finishSet(consumer, 0);
 		}).fail([=](const MTP::Error &error) {
 			const auto &type = error.type();
 			const auto prefix = u"EMAIL_UNCONFIRMED_"_q;
@@ -457,7 +402,7 @@ rpl::producer<CloudPassword::SetOk, QString> CloudPassword::setEmail(
 					type,
 					prefix.size()).toInt();
 
-				finish(consumer, codeLength);
+				finishSet(consumer, codeLength);
 			} else {
 				consumer.put_error_copy(type);
 			}

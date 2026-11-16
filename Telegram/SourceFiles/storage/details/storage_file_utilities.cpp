@@ -74,6 +74,14 @@ struct WriteEntry {
 	QByteArray md5;
 };
 
+struct RemoveEntry {
+	std::vector<QString> files;
+	QString folder;
+};
+
+using WriteOperation = std::variant<WriteEntry, RemoveEntry>;
+using WriteQueue = std::deque<WriteOperation>;
+
 class WriteManager final {
 public:
 	explicit WriteManager(crl::weak_on_thread<WriteManager> weak);
@@ -97,7 +105,7 @@ private:
 		QFileDevice &file);
 
 	crl::weak_on_thread<WriteManager> _weak;
-	std::deque<WriteEntry> _scheduled;
+	WriteQueue _scheduled;
 
 };
 
@@ -118,8 +126,29 @@ WriteManager::WriteManager(crl::weak_on_thread<WriteManager> weak)
 : _weak(std::move(weak)) {
 }
 
+WriteQueue::iterator WriteManager::segment() {
+	const auto removal = ranges::find_if(
+		rbegin(_scheduled),
+		rend(_scheduled),
+		[](const WriteOperation &operation) {
+			return v::is<RemoveEntry>(operation);
+		});
+	return removal.base();
+}
+
+WriteQueue::iterator WriteManager::scheduled(const QString &base) {
+	// WHY: writes coalesce only after the last removal, so a removal
+	// never erases a later write and no earlier write outlives it.
+	return ranges::find_if(
+		segment(),
+		end(_scheduled),
+		[&](const WriteOperation &operation) {
+			return (v::get<WriteEntry>(operation).base == base);
+		});
+}
+
 void WriteManager::write(WriteEntry &&entry) {
-	const auto i = ranges::find(_scheduled, entry.base, &WriteEntry::base);
+	const auto i = scheduled(entry.base);
 	if (i == end(_scheduled)) {
 		_scheduled.push_back(std::move(entry));
 	} else {
@@ -213,11 +242,30 @@ bool WriteManager::writeOneScheduledNow() {
 		return false;
 	}
 
-	auto entry = std::move(_scheduled.front());
+	auto operation = std::move(_scheduled.front());
 	_scheduled.pop_front();
 
-	writeNow(std::move(entry));
+	v::match(operation, [&](WriteEntry &entry) {
+		writeNow(std::move(entry));
+	}, [&](const RemoveEntry &entry) {
+		removeNow(entry);
+	});
 	return true;
+}
+
+void WriteManager::removeNow(const RemoveEntry &entry) {
+	auto failed = 0;
+	for (const auto &file : entry.files) {
+		if (!QFile::remove(file) && QFileInfo::exists(file)) {
+			++failed;
+		}
+	}
+	if (failed) {
+		LOG(("Storage Error: Could not remove %1 files.").arg(failed));
+	}
+	if (!entry.folder.isEmpty() && !QDir(entry.folder).removeRecursively()) {
+		LOG(("Storage Error: Could not remove a folder."));
+	}
 }
 
 bool WriteManager::writeHeader(const QString &basePath, QFileDevice &file) {
@@ -869,6 +917,18 @@ bool ReadEncryptedFile(
 		const QString &basePath,
 		const MTP::AuthKeyPtr &key) {
 	return ReadEncryptedFile(result, ToFilePart(fkey), basePath, key);
+}
+
+void ScheduleRemoveFiles(std::vector<QString> paths) {
+	if (!paths.empty()) {
+		Manager.remove({ .files = std::move(paths) });
+	}
+}
+
+void ScheduleRemoveFolder(const QString &path) {
+	Expects(!path.isEmpty());
+
+	Manager.remove({ .folder = path });
 }
 
 void Sync() {

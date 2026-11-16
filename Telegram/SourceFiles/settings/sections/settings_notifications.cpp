@@ -61,6 +61,7 @@ https://github.com/telegramdesktop/tdesktop/blob/master/LEGAL
 #include "styles/style_window.h"
 
 #include <QtGui/QGuiApplication>
+#include <QtGui/QPainterPath>
 #include <QtGui/QScreen>
 #include <QSvgRenderer>
 

@@ -13,6 +13,7 @@ https://github.com/telegramdesktop/tdesktop/blob/master/LEGAL
 #include "mainwidget.h"
 #include "mainwindow.h"
 #include "storage/localstorage.h"
+#include "tgw/tgw_runtime.h"
 #include "window/notifications_manager.h"
 #include "window/window_controller.h"
 #include "core/crash_reports.h"
@@ -375,10 +376,11 @@ Sandbox::~Sandbox() {
 
 bool Sandbox::event(QEvent *e) {
 	if (e->type() == QEvent::Quit) {
-		if (Quitting()) {
+		if (!Quitting()) {
+			Quit(QuitReason::QtQuitEvent);
+		} else if (!Tgw::Runtime::IsExitPrevent(QuitWhenStarted)) {
 			return QCoreApplication::event(e);
 		}
-		Quit(QuitReason::QtQuitEvent);
 		e->ignore();
 		return false;
 	} else if (e->type() == QEvent::Close) {

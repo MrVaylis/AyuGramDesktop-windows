@@ -141,6 +141,7 @@ public:
 	}
 
 	void checkTopicCreated(FullMsgId rootId, MsgId realRoot);
+	void checkReplyTargetSent(FullMsgId localId, MsgId realId);
 	void discardCreatingTopic(not_null<History*> history, MsgId rootId);
 	[[nodiscard]] FullMsgId convertTopicReplyToId(
 		not_null<History*> history,

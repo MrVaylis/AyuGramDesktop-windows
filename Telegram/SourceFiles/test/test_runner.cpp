@@ -251,6 +251,11 @@ void CompleteAfterSessionDrain(not_null<Runner*> runner, crl::time left) {
 	};
 }
 
+[[nodiscard]] std::vector<Fn<bool(not_null<Runner*>)>> &ScenarioProviders() {
+	static auto result = std::vector<Fn<bool(not_null<Runner*>)>>();
+	return result;
+}
+
 } // namespace
 
 void RegisterScenarioProvider(Fn<bool(not_null<Runner*>)> provider) {

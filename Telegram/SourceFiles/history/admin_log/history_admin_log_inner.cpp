@@ -1004,15 +1004,7 @@ void InnerWidget::jumpToMessageInLog(
 		return;
 	}
 	const auto from = _visibleTop;
-	const auto range = (highlight.richQuote && (height > viewport))
-		? HistoryView::FindHighlightYRange(view, _highlighter.state(item))
-		: HistoryView::HighlightYRange();
-	const auto target = std::clamp(
-		(range
-			? HistoryView::AdjustScrollForRange(top, viewport, range)
-			: (top - std::max(0, (viewport - height) / 2))),
-		0,
-		std::max(0, this->height() - viewport));
+	const auto target = jumpTarget(view, highlight);
 	if (from == target) {
 		return;
 	}

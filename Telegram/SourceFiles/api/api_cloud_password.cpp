@@ -59,6 +59,22 @@ void CloudPassword::apply(Core::CloudPasswordState state) {
 	_stateChanges.fire_copy(*_state);
 }
 
+void CloudPassword::finishSet(
+		rpl::consumer<SetOk, QString> consumer,
+		int codeLength) {
+	_api.request(MTPaccount_GetPassword(
+	)).done([=](const MTPaccount_Password &result) {
+		apply(ProcessMtpState(result));
+		if (codeLength) {
+			consumer.put_next(SetOk{ codeLength });
+		} else {
+			consumer.put_done();
+		}
+	}).fail([=](const MTP::Error &error) {
+		consumer.put_error_copy(error.type());
+	}).handleFloodErrors().send();
+}
+
 void CloudPassword::reload(
 		Fn<void(std::optional<Core::CloudPasswordState>)> callback) {
 	if (callback) {

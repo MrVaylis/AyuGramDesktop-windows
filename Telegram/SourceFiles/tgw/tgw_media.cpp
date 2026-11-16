@@ -168,8 +168,7 @@ MessageContext WidgetMedia::context() const {
 		.chatType = (flags.isCopy
 			? ChatType::None
 			: ChatTypeOf(item->history()->peer)),
-		.wallet = (flags.canQuery
-			&& Wallet::Available(&item->history()->session())),
+		.wallet = false,
 	};
 }
 

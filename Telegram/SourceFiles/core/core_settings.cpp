@@ -1612,6 +1612,26 @@ rpl::producer<QString> Settings::deviceModelChanges() const {
 	});
 }
 
+WindowColumns Settings::windowColumns() const {
+	return {
+		.dialogsWithChatWidthRatio = _dialogsWithChatWidthRatio.current(),
+		.dialogsNoChatWidthRatio = _dialogsNoChatWidthRatio.current(),
+		.thirdColumnWidth = _thirdColumnWidth.current(),
+		.thirdSectionExtendedBy = _thirdSectionExtendedBy,
+		.tabbedSelectorSectionEnabled = _tabbedSelectorSectionEnabled,
+		.thirdSectionInfoEnabled = _thirdSectionInfoEnabled,
+	};
+}
+
+void Settings::setWindowColumns(const WindowColumns &columns) {
+	_dialogsWithChatWidthRatio = columns.dialogsWithChatWidthRatio;
+	_dialogsNoChatWidthRatio = columns.dialogsNoChatWidthRatio;
+	_thirdColumnWidth = columns.thirdColumnWidth;
+	_thirdSectionExtendedBy = columns.thirdSectionExtendedBy;
+	_tabbedSelectorSectionEnabled = columns.tabbedSelectorSectionEnabled;
+	_thirdSectionInfoEnabled = columns.thirdSectionInfoEnabled;
+}
+
 const std::vector<RecentEmoji> &Settings::recentEmoji() const {
 	if (!_recentEmojiResolved) {
 		_recentEmojiResolved = true;

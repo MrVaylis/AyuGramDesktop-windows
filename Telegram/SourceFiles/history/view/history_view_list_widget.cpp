@@ -1285,6 +1285,7 @@ void ListWidget::scrollTo(
 		Data::MessagePosition attachPosition,
 		int delta,
 		AnimatedScroll type,
+		Fn<std::optional<int>()> placement,
 		crl::time duration) {
 	_scrollToAnimation.stop();
 	_scrollToBottomAnimation = false;
@@ -1589,7 +1590,7 @@ void ListWidget::computeScrollTo(
 		: (std::abs(fullDelta) > limit)
 		? AnimatedScroll::Part
 		: AnimatedScroll::Full;
-	scrollTo(wanted, position, scrollDelta, type, duration);
+	scrollTo(wanted, position, scrollDelta, type, nullptr, duration);
 }
 
 void ListWidget::checkUnreadBarCreation(bool markLastAsRead) {

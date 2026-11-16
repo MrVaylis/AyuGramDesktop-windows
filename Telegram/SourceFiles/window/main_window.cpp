@@ -855,7 +855,6 @@ void MainWindow::firstShow() {
 		rememberOwnBodyMargins(inner);
 		return;
 	}
-	const auto position = initialPosition();
 	const auto geometry = countInitialGeometry(position);
 	DEBUG_LOG(("Window Pos: Setting first %1, %2, %3, %4"
 		).arg(geometry.x()

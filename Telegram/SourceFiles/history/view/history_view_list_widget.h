@@ -810,7 +810,6 @@ private:
 		int to,
 		Data::MessagePosition position,
 		anim::type animated,
-		Fn<std::optional<int>()> placement = nullptr,
 		crl::time duration = 0);
 	enum class AnimatedScroll {
 		Full,

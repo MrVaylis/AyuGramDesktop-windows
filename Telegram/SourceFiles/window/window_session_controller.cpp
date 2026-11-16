@@ -689,19 +689,19 @@ void OpenPeerWithSidebar(
 		std::optional<Storage::SharedMediaType> media,
 		const SectionShow &params,
 		MsgId msgId) {
-	auto &settings = Core::App().settings();
-	const auto tabbedPinned = settings.tabbedSelectorSectionEnabled();
-	settings.setThirdSectionInfoEnabled(true);
+	const auto controller = navigation->parentController();
+	auto &columns = controller->columns();
+	const auto tabbedPinned = columns.tabbedSelectorSectionEnabled();
+	columns.setThirdSectionInfoEnabled(true);
 	if (tabbedPinned) {
-		settings.setTabbedSelectorSectionEnabled(true);
+		columns.setTabbedSelectorSectionEnabled(true);
 	}
 	Core::App().saveSettingsDelayed();
-	const auto controller = navigation->parentController();
 	if (!controller->adaptive().isThreeColumn()) {
 		controller->resizeForThirdSection();
 	}
 	if (tabbedPinned) {
-		settings.setTabbedReplacedWithInfo(true);
+		columns.setTabbedReplacedWithInfo(true);
 	}
 	if (const auto forum = peer->forum()) {
 		controller->showForum(forum, params, msgId);
@@ -712,6 +712,7 @@ void OpenPeerWithSidebar(
 		? std::make_shared<Info::Memento>(peer, Info::Section(*media))
 		: Info::Memento::Default(peer);
 	navigation->showSection(std::move(memento), params.withThirdColumn());
+	controller->updateColumnLayout();
 }
 
 } // namespace
@@ -2932,12 +2933,10 @@ void SessionController::resizeForThirdSection() {
 	const auto deficit = oneColumn
 		? (minimalThreeColumnWidth() - layout.bodyWidth)
 		: 0;
-	auto tabbedSelectorSectionEnabled
-		= settings.tabbedSelectorSectionEnabled();
-	auto thirdSectionInfoEnabled
-		= settings.thirdSectionInfoEnabled();
-	settings.setTabbedSelectorSectionEnabled(false);
-	settings.setThirdSectionInfoEnabled(false);
+	_extendingForThirdSection = true;
+	const auto guard = gsl::finally([&] {
+		_extendingForThirdSection = false;
+	});
 
 	auto wanted = countThirdColumnWidthFromRatio(layout.bodyWidth) + deficit;
 	auto minimal = deficit ? deficit : st::columnMinimalWidthThird;
@@ -2958,8 +2957,8 @@ void SessionController::resizeForThirdSection() {
 		return widget()->tryToExtendWidthBy(minimal);
 	}();
 	if (extendedBy) {
-		if (extendBy != settings.thirdColumnWidth()) {
-			settings.setThirdColumnWidth(std::max(
+		if (extendBy != columns().thirdColumnWidth()) {
+			columns().setThirdColumnWidth(std::max(
 				extendBy - deficit,
 				st::columnMinimalWidthThird));
 		}
@@ -2973,12 +2972,7 @@ void SessionController::resizeForThirdSection() {
 	auto savedValue = (extendedBy == extendBy && !oneColumn)
 		? -1
 		: extendedBy;
-	settings.setThirdSectionExtendedBy(savedValue);
-
-	settings.setTabbedSelectorSectionEnabled(
-		tabbedSelectorSectionEnabled);
-	settings.setThirdSectionInfoEnabled(
-		thirdSectionInfoEnabled);
+	columns().setThirdSectionExtendedBy(savedValue);
 }
 
 void SessionController::closeThirdSection() {

@@ -366,7 +366,7 @@ MainWidget::MainWidget(
 		updateControlsGeometry();
 	}, lifetime());
 
-	Core::App().settings().thirdSectionInfoEnabledValue(
+	_controller->columns().thirdSectionInfoEnabledValue(
 	) | rpl::skip(1) | rpl::on_next([=] {
 		crl::on_main(this, [=] {
 			updateColumnLayout();

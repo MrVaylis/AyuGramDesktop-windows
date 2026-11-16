@@ -647,7 +647,7 @@ Runtime::Runtime(RuntimeDescriptor &&descriptor)
 	_shownHeight = height();
 	auto &registry = Runtimes();
 	if (registry.list.empty()) {
-		Platform::ApplicationHiddenValue(
+		Core::App().appDeactivatedValue(
 		) | rpl::on_next([](bool hidden) {
 			Runtimes().applicationHidden = hidden;
 			PostCheck();
@@ -1036,11 +1036,6 @@ std::shared_ptr<MessageMemory> Runtime::RememberMessage(
 			if (i != end(registry.sessions)) {
 				i->second.remove(removed);
 			}
-		}, session->lifetime());
-		Wallet::AvailableValue(
-			session
-		) | rpl::skip(1) | rpl::on_next([=](bool) {
-			WalletAvailabilityChanged(session);
 		}, session->lifetime());
 		session->lifetime().add([=] {
 			Runtimes().sessions.remove(session);

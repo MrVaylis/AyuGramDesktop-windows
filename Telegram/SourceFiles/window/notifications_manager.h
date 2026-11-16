@@ -173,6 +173,8 @@ private:
 		crl::time when = 0;
 	};
 	struct Alert {
+		NotificationInHistoryKey key;
+		PeerData *notifyBy = nullptr;
 		DocumentId soundId = 0;
 	};
 	struct SentNotificationId {
@@ -226,7 +228,10 @@ private:
 
 	base::flat_map<
 		not_null<Data::Thread*>,
-		base::flat_map<crl::time, Alert>> _whenAlerts;
+		base::flat_multi_map<crl::time, Alert>> _whenAlerts;
+	base::flat_map<
+		not_null<Data::Thread*>,
+		base::flat_set<MsgId>> _shownIncoming;
 
 	mutable base::flat_map<
 		SentNotificationId,

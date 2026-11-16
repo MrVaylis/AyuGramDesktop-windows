@@ -9596,3 +9596,7 @@ https://github.com/telegramdesktop/tdesktop/blob/master/LEGAL
 "ayu_ChannelPromoText" = "Subscribe to our official Telegram channel for updates and announcements!";
 "ayu_ChannelPromoSubscribe" = "Subscribe";
 "ayu_ChannelPromoLater" = "Later";
+"lng_tgw_stopped" = "Widget stopped";
+"lng_tgw_log" = "Widget log";
+"lng_tgw_copied" = "Copied: {text}";
+"lng_in_dlg_widget" = "Widget";

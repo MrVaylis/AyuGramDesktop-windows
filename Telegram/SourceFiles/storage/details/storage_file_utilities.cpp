@@ -88,6 +88,7 @@ public:
 
 	void write(WriteEntry &&entry);
 	[[nodiscard]] bool writeSync(WriteEntry &&entry);
+	void remove(RemoveEntry &&entry);
 	void writeSyncAll();
 
 private:
@@ -95,6 +96,10 @@ private:
 	void writeScheduled();
 	bool writeOneScheduledNow();
 	bool writeNow(WriteEntry &&entry);
+	void removeNow(const RemoveEntry &entry);
+
+	[[nodiscard]] WriteQueue::iterator segment();
+	[[nodiscard]] WriteQueue::iterator scheduled(const QString &base);
 
 	template <typename File>
 	[[nodiscard]] bool open(File &file, const WriteEntry &entry, char postfix);
@@ -113,6 +118,7 @@ class AsyncWriteManager final {
 public:
 	void write(WriteEntry &&entry);
 	[[nodiscard]] bool writeSync(WriteEntry &&entry);
+	void remove(RemoveEntry &&entry);
 	void sync();
 	void stop();
 
@@ -158,11 +164,19 @@ void WriteManager::write(WriteEntry &&entry) {
 }
 
 bool WriteManager::writeSync(WriteEntry &&entry) {
-	const auto i = ranges::find(_scheduled, entry.base, &WriteEntry::base);
+	for (auto left = segment() - begin(_scheduled); left > 0; --left) {
+		writeOneScheduledNow();
+	}
+	const auto i = scheduled(entry.base);
 	if (i != end(_scheduled)) {
 		_scheduled.erase(i);
 	}
 	return writeNow(std::move(entry));
+}
+
+void WriteManager::remove(RemoveEntry &&entry) {
+	_scheduled.push_back(std::move(entry));
+	scheduleWrite();
 }
 
 bool WriteManager::writeNow(WriteEntry &&entry) {
@@ -335,6 +349,17 @@ bool AsyncWriteManager::writeSync(WriteEntry &&entry) {
 		result = manager.writeSync(std::move(entry));
 	});
 	return result;
+}
+
+void AsyncWriteManager::remove(RemoveEntry &&entry) {
+	Expects(!_finished);
+
+	if (!_manager) {
+		_manager.emplace();
+	}
+	_manager->with([entry = std::move(entry)](WriteManager &manager) mutable {
+		manager.remove(std::move(entry));
+	});
 }
 
 void AsyncWriteManager::sync() {

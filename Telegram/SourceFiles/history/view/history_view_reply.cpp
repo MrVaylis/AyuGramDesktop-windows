@@ -748,16 +748,6 @@ int Reply::nameIconsSkip() const {
 		+ (_hasBackgroundEmoji ? st::messageGiftIconSkip : 0);
 }
 
-int Reply::resizeToWidth(int width) const {
-	_ripple.animation = nullptr;
-
-int Reply::nameIconsSkip() const {
-	return (_hasQuoteIcon
-		? st::messageTextStyle.blockquote.icon.width()
-		: 0)
-		+ (_hasBackgroundEmoji ? st::messageGiftIconSkip : 0);
-}
-
 int Reply::previewSkip() const {
 	return (_hasPreview && !_previewHidden)
 		? (st::messageQuoteStyle.outline
@@ -783,9 +773,7 @@ int Reply::resizeToWidth(int width) const {
 		_height = _minHeight;
 		return height();
 	}
-	const auto innerw = width
-		- st::historyReplyPadding.left()
-		- st::historyReplyPadding.right();
+	const auto previewSkip = Reply::previewSkip();
 	const auto namew = innerw - previewSkip - nameIconsSkip();
 	const auto desiredNameHeight = _name.countHeight(namew);
 	_nameTwoLines = (desiredNameHeight > st::semiboldFont->height) ? 1 : 0;

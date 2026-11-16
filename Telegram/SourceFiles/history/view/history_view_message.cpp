@@ -5066,6 +5066,7 @@ void Message::updatePressed(QPoint point) {
 	}
 
 	if (drawBubble()) {
+		const auto item = data();
 		auto mediaDisplayed = media && media->isDisplayed();
 		auto trect = g.marginsAdded(-st::msgPadding);
 		if (mediaDisplayed && media->isBubbleTop()) {

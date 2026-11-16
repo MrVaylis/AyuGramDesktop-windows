@@ -700,7 +700,7 @@ private:
 	void scheduleListReveal(not_null<ListRevealHold*> hold);
 	void finishListReveal(not_null<ListRevealHold*> hold);
 	void resumeListReveal();
-	void updateListSize();
+	bool updateListSize(const Tgw::ScrollSnapshot *restore = nullptr);
 	void startItemRevealAnimations();
 	void revealItemsCallback();
 	void liftItemReveal(not_null<HistoryItem*> item, int lift);

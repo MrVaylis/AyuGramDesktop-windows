@@ -761,11 +761,18 @@ void MentionClickHandler::onClick(ClickContext context) const {
 			: Core::App().activeWindow()
 			? Core::App().activeWindow()->sessionController()
 			: nullptr;
-		if (use && !Wallet::OpenWalletInsteadOfOldBot(use, _tag.mid(1))) {
-			use->showPeerByLink(Window::PeerByLinkInfo{
-				.usernameOrId = _tag.mid(1),
-				.resolveType = Window::ResolveType::Mention,
-			});
+		if (use) {
+			const auto username = _tag.mid(1);
+			const auto oldWalletBot = use->session().appConfig().oldWalletBotUsername();
+			if (!oldWalletBot.isEmpty()
+				&& username.compare(oldWalletBot, Qt::CaseInsensitive) == 0) {
+				Wallet::ShowWallet(&use->session());
+			} else {
+				use->showPeerByLink(Window::PeerByLinkInfo{
+					.usernameOrId = username,
+					.resolveType = Window::ResolveType::Mention,
+				});
+			}
 		}
 	}
 }

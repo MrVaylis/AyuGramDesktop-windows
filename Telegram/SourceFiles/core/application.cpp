@@ -74,6 +74,7 @@ https://github.com/telegramdesktop/tdesktop/blob/master/LEGAL
 #include "media/media_video_encode.h"
 #include "media/system_media_controls_manager.h"
 #include "window/notifications_manager.h"
+#include "window/window_columns.h"
 #include "window/themes/window_theme.h"
 #include "ui/widgets/tooltip.h"
 #include "ui/gl/gl_detection.h"

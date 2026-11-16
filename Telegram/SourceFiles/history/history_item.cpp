@@ -6,6 +6,7 @@ For license and copyright information please follow this link:
 https://github.com/telegramdesktop/tdesktop/blob/master/LEGAL
 */
 #include "history/history_item.h"
+#include "tgw/tgw_media.h"
 
 #include "api/api_premium.h"
 #include "api/api_sensitive_content.h"

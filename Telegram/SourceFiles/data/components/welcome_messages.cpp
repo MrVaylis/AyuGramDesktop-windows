@@ -699,35 +699,6 @@ HistoryItem *WelcomeMessages::append(
 	return item;
 }
 
-void WelcomeMessages::applyEdition(
-		not_null<HistoryItem*> item,
-		const MTPDephemeralMessage &data) {
-	auto edition = HistoryMessageEdition();
-	edition.isEditHide = true;
-	edition.editDate = -1;
-	edition.useSameViews = true;
-	edition.useSameForwards = true;
-	edition.useSameReplies = true;
-	edition.useSameReactions = true;
-	edition.useSameSuggest = true;
-	edition.textWithEntities = {
-		qs(data.vmessage()),
-		Api::EntitiesFromMTP(
-			_session,
-			data.ventities().value_or_empty()),
-	};
-	edition.replyMarkup = HistoryMessageMarkupData(data.vreply_markup());
-	edition.mtpMedia = data.vmedia();
-	edition.invertMedia = data.is_invert_media();
-	if (const auto richMessage = data.vrich_message()) {
-		edition.richPage = Iv::ParseRichPage(
-			_session,
-			*richMessage,
-			Iv::RichParseMode::Quotable);
-	}
-	item->applyEdition(std::move(edition));
-}
-
 void WelcomeMessages::updated(
 		not_null<History*> history,
 		const base::flat_set<not_null<HistoryItem*>> &added,

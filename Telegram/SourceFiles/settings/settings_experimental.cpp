@@ -121,6 +121,62 @@ struct ResolvedReferrer {
 	return result;
 }
 
+enum class ImportResult {
+	Done,
+	Invalid,
+	Unsupported,
+};
+
+[[nodiscard]] ImportResult ImportOptions(const QString &text) {
+	const auto decoded = DecodeOptionsFromText(text.trimmed());
+	if (!decoded.ok) {
+		return ImportResult::Invalid;
+	}
+	return base::options::deserialize(decoded.json)
+		? ImportResult::Done
+		: ImportResult::Unsupported;
+}
+
+void ImportOptionsBox(
+		not_null<Ui::GenericBox*> box,
+		not_null<Window::Controller*> window,
+		Fn<void()> imported) {
+	box->setTitle(rpl::single(u"Import experimental settings"_q));
+
+	const auto field = box->addRow(object_ptr<Ui::InputField>(
+		box,
+		st::defaultInputField,
+		Ui::InputField::Mode::NoNewlines,
+		rpl::single(u"Experimental settings code"_q)));
+
+	const auto save = [=] {
+		const auto result = ImportOptions(field->getLastText());
+		if (result == ImportResult::Invalid) {
+			field->showError();
+			box->showToast(u"This is not a valid "
+				"experimental settings code."_q);
+			return;
+		} else if (result == ImportResult::Unsupported) {
+			field->showError();
+			box->showToast(u"Experimental settings code is valid"
+				", but data format is not supported."_q);
+			return;
+		}
+		imported();
+		box->closeBox();
+		window->showToast(u"Experimental settings imported."_q);
+	};
+	field->submits() | rpl::on_next(save, field->lifetime());
+
+	box->addButton(tr::lng_settings_save(), save);
+	box->addButton(tr::lng_cancel(), [=] {
+		box->closeBox();
+	});
+	box->setFocusCallback([=] {
+		field->setFocusFast();
+	});
+}
+
 [[nodiscard]] ResolvedReferrer ResolveReferrer(
 		const QString &controlId,
 		not_null<Main::Session*> session) {

@@ -276,7 +276,8 @@ void DownloadDictionaryInBackground(
 		not_null<Main::Session*> session,
 		int counter,
 		std::vector<int> langs,
-		Fn<void()> done = nullptr) {
+		Fn<void()> done = nullptr,
+		bool force = false) {
 	if (counter >= langs.size()) {
 		if (done) {
 			done();

@@ -2904,15 +2904,13 @@ private:
 
 	void applyMapSelection(
 		QPointer<Widget> editor,
-		::Data::InputVenue venue) {
-		const auto point = ::Data::LocationPoint::FromCoordinates(
-			venue.lat,
-			venue.lon);
-		if (!editor || !point) {
+		::Data::LocationPoint point,
+		QString address) {
+		if (!editor) {
 			return;
 		}
 		_editor = editor;
-		editor->insertPreparedBlock(makeMapBlock(*point, std::move(venue)));
+		editor->insertPreparedBlock(makeMapBlock(point, std::move(address)));
 	}
 
 	[[nodiscard]] RichPage::Block makeAttachmentBlock(
@@ -2997,7 +2995,7 @@ private:
 
 	[[nodiscard]] RichPage::Block makeMapBlock(
 			const ::Data::LocationPoint &point,
-			::Data::InputVenue venue) const {
+			QString address) const {
 		const auto preview = ::Data::ComputeLocation(point);
 		auto block = RichPage::Block();
 		block.kind = RichPage::BlockKind::Map;

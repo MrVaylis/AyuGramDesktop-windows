@@ -391,6 +391,7 @@ public:
 
 	[[nodiscard]] TextForMimeData getSelectedText() const;
 	[[nodiscard]] Iv::RichPageBlocksSlice getSelectedRichBlocks() const;
+	[[nodiscard]] bool canCopySelected() const;
 	void copySelectedText(bool withImageText = false);
 	[[nodiscard]] MessageIdsList getSelectedIds() const;
 	[[nodiscard]] SelectedItems getSelectedItems() const;
@@ -398,6 +399,8 @@ public:
 		not_null<HistoryItem*> item) const;
 	[[nodiscard]] MessageSelection getSelectedTextSelection(
 		not_null<HistoryItem*> item) const;
+	[[nodiscard]] bool hasWidgetSelection(
+		not_null<const HistoryItem*> item) const;
 	void clearSelected();
 	void clearTextSelection();
 	void cancelSelection();
@@ -807,6 +810,7 @@ private:
 		int to,
 		Data::MessagePosition position,
 		anim::type animated,
+		Fn<std::optional<int>()> placement = nullptr,
 		crl::time duration = 0);
 	enum class AnimatedScroll {
 		Full,
@@ -818,6 +822,7 @@ private:
 		Data::MessagePosition attachPosition,
 		int delta,
 		AnimatedScroll type,
+		Fn<std::optional<int>()> placement = nullptr,
 		crl::time duration = 0);
 
 	void trySwitchToWordSelection();

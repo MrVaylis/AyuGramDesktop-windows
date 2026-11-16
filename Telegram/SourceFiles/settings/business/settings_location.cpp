@@ -239,10 +239,8 @@ void Location::chooseOnMap() {
 	}
 	const auto callback = [=](Data::LocationPoint point, QString address) {
 		auto copy = _data.current();
-		copy.point = Data::LocationPoint::FromCoordinates(
-			venue.lat,
-			venue.lon);
-		copy.address = venue.address;
+		copy.point = point;
+		copy.address = std::move(address);
 		_data = std::move(copy);
 	};
 	const auto session = &controller()->session();

@@ -1612,14 +1612,6 @@ rpl::producer<QString> Settings::deviceModelChanges() const {
 	});
 }
 
-int Settings::thirdColumnWidth() const {
-	return _thirdColumnWidth.current();
-}
-
-rpl::producer<int> Settings::thirdColumnWidthChanges() const {
-	return _thirdColumnWidth.changes();
-}
-
 const std::vector<RecentEmoji> &Settings::recentEmoji() const {
 	if (!_recentEmojiResolved) {
 		_recentEmojiResolved = true;

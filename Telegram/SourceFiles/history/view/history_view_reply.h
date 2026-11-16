@@ -125,6 +125,7 @@ public:
 private:
 	[[nodiscard]] bool hasBackgroundEmoji() const;
 	[[nodiscard]] int nameIconsSkip() const;
+	[[nodiscard]] int previewSkip() const;
 	[[nodiscard]] Ui::Text::GeometryDescriptor textGeometry(
 		int available,
 		int firstLineSkip,

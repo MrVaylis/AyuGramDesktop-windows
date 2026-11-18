@@ -10,6 +10,7 @@
 #include "ayu/libs/sqlite/sqlite_orm.h"
 #include "base/unixtime.h"
 
+#include <limits>
 #include <mutex>
 
 using namespace sqlite_orm;
@@ -323,43 +324,56 @@ void addDeletedMessage(const DeletedMessage &message) {
 }
 
 std::vector<DeletedMessage> getDeletedMessages(ID userId, ID dialogId, ID topicId, ID minId, ID maxId, int totalLimit, const std::string &searchQuery) {
-	std::lock_guard lock(databaseMutex);
 	try {
-		if (searchQuery.empty()) {
-			return storage.get_all<DeletedMessage>(
-				where(
-					column<DeletedMessage>(&DeletedMessage::userId) == userId and
-					column<DeletedMessage>(&DeletedMessage::dialogId) == dialogId and
-					(column<DeletedMessage>(&DeletedMessage::topicId) == topicId or topicId == 0) and
-					(column<DeletedMessage>(&DeletedMessage::messageId) > minId or minId == 0) and
-					(column<DeletedMessage>(&DeletedMessage::messageId) < maxId or maxId == 0)
-				),
-				order_by(column<DeletedMessage>(&DeletedMessage::messageId)).desc(),
-				limit(totalLimit)
-			);
+		std::string pattern;
+		if (!searchQuery.empty()) {
+			pattern.reserve(searchQuery.size() + 2);
+			pattern += '%';
+			for (const auto c : searchQuery) {
+				if (c == '%' || c == '_' || c == '\\') {
+					pattern += '\\';
+				}
+				pattern += c;
+			}
+			pattern += '%';
 		}
 
-		std::string escaped;
-		escaped.reserve(searchQuery.size());
-		for (const auto c : searchQuery) {
-			if (c == '%' || c == '_' || c == '\\') {
-				escaped += '\\';
+		std::lock_guard lock(databaseMutex);
+		const auto messageId = column<DeletedMessage>(&DeletedMessage::messageId);
+		const auto dialog = column<DeletedMessage>(&DeletedMessage::userId) == userId
+			and column<DeletedMessage>(&DeletedMessage::dialogId) == dialogId;
+		const auto loadPage = [&](auto filter, auto order) {
+			if (pattern.empty()) {
+				return storage.get_all<DeletedMessage>(
+					where(filter),
+					order,
+					limit(totalLimit));
 			}
-			escaped += c;
+			return storage.get_all<DeletedMessage>(
+				where(filter and like(column<DeletedMessage>(&DeletedMessage::text), pattern, "\\")),
+				order,
+				limit(totalLimit));
+		};
+
+		if (topicId != 0) {
+			constexpr auto kMin = std::numeric_limits<ID>::min();
+			constexpr auto kMax = std::numeric_limits<ID>::max();
+			if (minId == kMax || maxId == kMin) {
+				return {};
+			}
+			const auto from = minId ? minId + 1 : kMin;
+			const auto till = maxId ? maxId - 1 : kMax;
+			return loadPage(
+				dialog and column<DeletedMessage>(&DeletedMessage::topicId) == topicId
+					and between(messageId, from, till),
+				multi_order_by(order_by(messageId).desc(),
+					order_by(column<DeletedMessage>(&DeletedMessage::fakeId)).asc()));
 		}
-		const auto pattern = "%" + escaped + "%";
-		return storage.get_all<DeletedMessage>(
-			where(
-				column<DeletedMessage>(&DeletedMessage::userId) == userId and
-				column<DeletedMessage>(&DeletedMessage::dialogId) == dialogId and
-				(column<DeletedMessage>(&DeletedMessage::topicId) == topicId or topicId == 0) and
-				(column<DeletedMessage>(&DeletedMessage::messageId) > minId or minId == 0) and
-				(column<DeletedMessage>(&DeletedMessage::messageId) < maxId or maxId == 0) and
-				like(column<DeletedMessage>(&DeletedMessage::text), pattern, "\\")
-			),
-			order_by(column<DeletedMessage>(&DeletedMessage::messageId)).desc(),
-			limit(totalLimit)
-		);
+
+		return loadPage(
+			dialog and (messageId > minId or minId == 0)
+				and (messageId < maxId or maxId == 0),
+			order_by(messageId).desc());
 	} catch (std::exception &ex) {
 		LOG(("Failed to get deleted messages: %1").arg(ex.what()));
 		return {};

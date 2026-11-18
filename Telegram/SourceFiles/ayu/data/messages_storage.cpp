@@ -1,4 +1,4 @@
-﻿// This is the source code of AyuGram for Desktop.
+// This is the source code of AyuGram for Desktop.
 //
 // We do not and cannot prevent the use of our code,
 // but be respectful and credit the original author.
@@ -221,11 +221,11 @@ void mapMedia(not_null<HistoryItem*> item, AyuMessageBase &message) {
 } // namespace
 
 template<typename DerivedMessage>
-std::vector<AyuMessageBase> convertToBase(const std::vector<DerivedMessage> &messages) {
+std::vector<AyuMessageBase> convertToBase(std::vector<DerivedMessage> &&messages) {
 	std::vector<AyuMessageBase> based;
 	based.reserve(messages.size());
-	for (const auto &msg : messages) {
-		based.push_back(static_cast<AyuMessageBase>(msg));
+	for (auto &msg : messages) {
+		based.emplace_back(std::move(msg));
 	}
 	return based;
 }

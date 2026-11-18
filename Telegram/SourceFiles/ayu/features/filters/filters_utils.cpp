@@ -32,26 +32,66 @@
 #include "ui/toast/toast.h"
 
 #include <atomic>
+#include <array>
 #include <chrono>
+#include <limits>
 #include <memory>
 #include <optional>
 #include <QByteArray>
 #include <QClipboard>
 #include <QGuiApplication>
-#include <QHostAddress>
-#include <QHostInfo>
+#include <QtNetwork/QHostAddress>
+#include <QtNetwork/QHostInfo>
 #include <QJsonArray>
+#include <QSet>
 #include <qjsondocument.h>
 #include <QString>
 #include <QTimer>
 #include <thread>
+#include <utility>
 #include <vector>
 #include <QtNetwork/QHttpPart>
 #include <QtNetwork/QNetworkAccessManager>
+#include <QtNetwork/QNetworkProxy>
 #include <QtNetwork/QNetworkReply>
 
 constexpr auto BACKUP_VERSION = 2;
 constexpr auto kMaxFilterBackupBytes = 2 * 1024 * 1024;
+constexpr auto kMaxFilterBackupPeerHintLength = 256;
+
+bool ValidDialogId(const QJsonValue &value) {
+	return value.isDouble()
+		&& value.toInteger(std::numeric_limits<qint64>::min())
+			!= std::numeric_limits<qint64>::min();
+}
+
+bool PublicFilterImportAddress(const QHostAddress &address) {
+	if (!address.isGlobal() || address.isPrivateUse() || address.isSiteLocal()) {
+		return false;
+	}
+	// Qt classifies several special-purpose IPv4 ranges as global. Block
+	// them explicitly, along with IPv6 transition ranges that can tunnel IPv4.
+	static const auto blocked = std::array{
+		std::pair{QHostAddress(u"100.64.0.0"_q), 10},
+		std::pair{QHostAddress(u"192.0.0.0"_q), 24},
+		std::pair{QHostAddress(u"192.0.2.0"_q), 24},
+		std::pair{QHostAddress(u"192.88.99.0"_q), 24},
+		std::pair{QHostAddress(u"198.18.0.0"_q), 15},
+		std::pair{QHostAddress(u"198.51.100.0"_q), 24},
+		std::pair{QHostAddress(u"203.0.113.0"_q), 24},
+		std::pair{QHostAddress(u"64:ff9b::"_q), 96},
+		std::pair{QHostAddress(u"64:ff9b:1::"_q), 48},
+		std::pair{QHostAddress(u"2001::"_q), 32},
+		std::pair{QHostAddress(u"2001:db8::"_q), 32},
+		std::pair{QHostAddress(u"2002::"_q), 16},
+	};
+	for (const auto &[network, prefix] : blocked) {
+		if (address.isInSubnet(network, prefix)) {
+			return false;
+		}
+	}
+	return true;
+}
 
 enum class PeerResolveHintType {
 	Username,
@@ -74,8 +114,8 @@ bool HasChanges(const ApplyChanges &changes) {
 
 bool ValidFilterBackup(const QJsonObject &root) {
 	const auto version = root.value("version");
-	if (!version.isDouble() || version.toInt() < 1
-		|| version.toInt() > BACKUP_VERSION) {
+	if (!version.isDouble() || version.toInteger(-1) < 1
+		|| version.toInteger(-1) > BACKUP_VERSION) {
 		return false;
 	}
 	for (const auto &name : {"filters", "exclusions", "removeFiltersById", "removeExclusions"}) {
@@ -103,7 +143,8 @@ bool ValidFilterBackup(const QJsonObject &root) {
 			}
 		}
 		const auto dialogId = item.value("dialogId");
-		if (!dialogId.isUndefined() && !dialogId.isNull() && !dialogId.isDouble()) {
+		if (!dialogId.isUndefined() && !dialogId.isNull()
+			&& !ValidDialogId(dialogId)) {
 			return false;
 		}
 	}
@@ -112,7 +153,7 @@ bool ValidFilterBackup(const QJsonObject &root) {
 			return false;
 		}
 		const auto item = entry.toObject();
-		if (!item.value("dialogId").isDouble()
+		if (!ValidDialogId(item.value("dialogId"))
 			|| !item.value("filterId").isString()) {
 			return false;
 		}
@@ -127,13 +168,18 @@ bool ValidFilterBackup(const QJsonObject &root) {
 			return false;
 		}
 		const auto item = entry.toObject();
-		if (!item.value("dialogId").isDouble()
+		if (!ValidDialogId(item.value("dialogId"))
 			|| !item.value("filterId").isString()) {
 			return false;
 		}
 	}
-	for (const auto &value : root.value("peers").toObject()) {
-		if (!value.isString()) {
+	const auto peerEntries = peers.toObject();
+	for (auto it = peerEntries.constBegin(); it != peerEntries.constEnd(); ++it) {
+		bool validId = false;
+		const auto id = it.key().toLongLong(&validId);
+		if (!validId || id == std::numeric_limits<qint64>::min()
+			|| !it.value().isString()
+			|| it.value().toString().size() > kMaxFilterBackupPeerHintLength) {
 			return false;
 		}
 	}
@@ -319,7 +365,7 @@ std::vector<char> ParseFilterId(QString id) {
 }
 
 PeerData *LoadedPeerFromDialogId(not_null<Data::Session*> data, ID dialogId) {
-	if (!dialogId) {
+	if (!dialogId || dialogId == std::numeric_limits<ID>::min()) {
 		return nullptr;
 	}
 	const auto bare = (dialogId < 0) ? -dialogId : dialogId;
@@ -338,11 +384,22 @@ void ResolveFilterBackupPeers(const std::vector<QString> &peerHints) {
 
 	crl::async([=]
 	{
+		const auto deadline = std::chrono::steady_clock::now()
+			+ std::chrono::seconds(90);
+		QSet<QString> seen;
 		for (const auto &entry : hintsCopy) {
+			if (std::chrono::steady_clock::now() >= deadline) {
+				break;
+			}
 			const auto hint = ParsePeerResolveHint(entry);
 			if (!hint || hint->value.isEmpty()) {
 				continue;
 			}
+			const auto key = QString::number(int(hint->type)) + ':' + hint->value;
+			if (seen.contains(key)) {
+				continue;
+			}
+			seen.insert(key);
 			auto latch = std::make_shared<TimedCountDownLatch>(1);
 			auto floodWait = std::make_shared<std::atomic_bool>(false);
 
@@ -414,20 +471,34 @@ void FilterUtils::importFromLink(const QString &link) {
 			return;
 		}
 		for (const auto &address : info.addresses()) {
-			if (!address.isGlobal() || address.isPrivateUse()
-				|| address.isSiteLocal()
-				|| address.isInSubnet(QHostAddress(u"100.64.0.0"_q), 10)) {
+			if (!PublicFilterImportAddress(address)) {
 				Ui::Toast::Show(tr::ayu_FiltersToastFailFetch(tr::now));
 				return;
 			}
 		}
 
-		auto request = QNetworkRequest(url);
+		// Connect to the address we validated. Resolving the hostname again
+		// in the HTTP stack would allow DNS rebinding after this check.
+		auto pinnedUrl = url;
+		pinnedUrl.setHost(info.addresses().front().toString());
+		auto request = QNetworkRequest(pinnedUrl);
+		const auto hostHeader = (QHostAddress(host).protocol()
+			== QAbstractSocket::IPv6Protocol)
+			? (u"["_q + host + u"]"_q).toLatin1()
+			: QUrl::toAce(host);
+		request.setRawHeader("Host", hostHeader);
+		request.setPeerVerifyName(host);
+		request.setAttribute(QNetworkRequest::Http2AllowedAttribute, false);
 		request.setAttribute(
 			QNetworkRequest::RedirectPolicyAttribute,
 			QNetworkRequest::ManualRedirectPolicy);
 		request.setTransferTimeout(15000);
-		const auto reply = _manager->get(request);
+		// A proxy could resolve the original hostname independently and bypass
+		// the validated address. Keep this import connection direct.
+		const auto manager = new QNetworkAccessManager(this);
+		manager->setProxy(QNetworkProxy::NoProxy);
+		const auto reply = manager->get(request);
+		connect(reply, &QNetworkReply::finished, manager, &QObject::deleteLater);
 		reply->setReadBufferSize(kMaxFilterBackupBytes + 1);
 		const auto response = std::make_shared<QByteArray>();
 		const auto failed = std::make_shared<bool>(false);
@@ -889,7 +960,7 @@ ApplyChanges FilterUtils::prepareChanges(const QJsonObject &root) {
 
 				const auto dialogIdValue = filter.value("dialogId");
 				if (!dialogIdValue.isNull()) {
-					regex.dialogId = filter.value("dialogId").toVariant().toLongLong();
+					regex.dialogId = dialogIdValue.toInteger();
 				} else {
 					regex.dialogId = std::nullopt;
 				}
@@ -924,6 +995,8 @@ ApplyChanges FilterUtils::prepareChanges(const QJsonObject &root) {
 											   });
 				if (it != existingFilters.end()) {
 					const RegexFilter &existing = *it;
+					// An imported update must not silently disable a local rule.
+					regex.enabled = existing.enabled;
 					if (existing != regex) {
 						filtersOverrides.push_back(std::move(regex));
 					}
@@ -939,7 +1012,7 @@ ApplyChanges FilterUtils::prepareChanges(const QJsonObject &root) {
 			if (const auto exclusion = exclusionRef.toObject(); !exclusion.isEmpty()) {
 				RegexFilterGlobalExclusion regex;
 
-				regex.dialogId = exclusion.value("dialogId").toVariant().toLongLong();
+				regex.dialogId = exclusion.value("dialogId").toInteger();
 
 				regex.filterId = ParseFilterId(exclusion.value("filterId").toString());
 				if (regex.filterId.empty()) {
@@ -983,7 +1056,7 @@ ApplyChanges FilterUtils::prepareChanges(const QJsonObject &root) {
 	if (const auto removeExclusionsJson = root.value("removeExclusions").toArray(); !removeExclusionsJson.isEmpty()) {
 		for (const auto &exclusionRef : removeExclusionsJson) {
 			const auto exclusionObj = exclusionRef.toObject();
-			const qint64 dialogId = exclusionObj.value("dialogId").toVariant().toLongLong();
+			const qint64 dialogId = exclusionObj.value("dialogId").toInteger();
 
 			const auto filterId = ParseFilterId(exclusionObj.value("filterId").toString());
 			if (filterId.empty()) {

@@ -49,7 +49,6 @@ std::optional<bool> isFiltered(
 	if (str.isEmpty()) {
 		return std::nullopt;
 	}
-
 	const auto icuStr = icu::UnicodeString(reinterpret_cast<const UChar*>(str.constData()), str.length());
 
 	const auto matches = [&](const ReversiblePattern &pattern)
@@ -70,7 +69,9 @@ std::optional<bool> isFiltered(
 
 		const auto match = matcher->find(status);
 		if (U_FAILURE(status)) {
-			LOG(("FILTER FAILED: %1").arg(u_errorName(status)));
+			if (status != U_REGEX_TIME_OUT && status != U_REGEX_STACK_OVERFLOW) {
+				LOG(("FILTER FAILED: %1").arg(u_errorName(status)));
+			}
 			return false;
 		}
 		const auto reversed = pattern.reversed;

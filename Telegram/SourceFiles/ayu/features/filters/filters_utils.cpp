@@ -38,9 +38,12 @@
 #include <QByteArray>
 #include <QClipboard>
 #include <QGuiApplication>
+#include <QHostAddress>
+#include <QHostInfo>
 #include <QJsonArray>
 #include <qjsondocument.h>
 #include <QString>
+#include <QTimer>
 #include <thread>
 #include <vector>
 #include <QtNetwork/QHttpPart>
@@ -48,6 +51,7 @@
 #include <QtNetwork/QNetworkReply>
 
 constexpr auto BACKUP_VERSION = 2;
+constexpr auto kMaxFilterBackupBytes = 2 * 1024 * 1024;
 
 enum class PeerResolveHintType {
 	Username,
@@ -66,6 +70,74 @@ bool HasChanges(const ApplyChanges &changes) {
 		|| !changes.newExclusions.empty()
 		|| !changes.removeExclusions.empty()
 		|| !changes.peersToBeResolved.empty();
+}
+
+bool ValidFilterBackup(const QJsonObject &root) {
+	const auto version = root.value("version");
+	if (!version.isDouble() || version.toInt() < 1
+		|| version.toInt() > BACKUP_VERSION) {
+		return false;
+	}
+	for (const auto &name : {"filters", "exclusions", "removeFiltersById", "removeExclusions"}) {
+		const auto value = root.value(name);
+		if (!value.isUndefined() && !value.isNull() && !value.isArray()) {
+			return false;
+		}
+	}
+	const auto peers = root.value("peers");
+	if (!peers.isUndefined() && !peers.isNull() && !peers.isObject()) {
+		return false;
+	}
+	for (const auto &entry : root.value("filters").toArray()) {
+		if (!entry.isObject()) {
+			return false;
+		}
+		const auto item = entry.toObject();
+		if (!item.value("id").isString() || !item.value("text").isString()) {
+			return false;
+		}
+		for (const auto &name : {"enabled", "reversed", "caseInsensitive"}) {
+			const auto value = item.value(name);
+			if (!value.isUndefined() && !value.isBool()) {
+				return false;
+			}
+		}
+		const auto dialogId = item.value("dialogId");
+		if (!dialogId.isUndefined() && !dialogId.isNull() && !dialogId.isDouble()) {
+			return false;
+		}
+	}
+	for (const auto &entry : root.value("exclusions").toArray()) {
+		if (!entry.isObject()) {
+			return false;
+		}
+		const auto item = entry.toObject();
+		if (!item.value("dialogId").isDouble()
+			|| !item.value("filterId").isString()) {
+			return false;
+		}
+	}
+	for (const auto &entry : root.value("removeFiltersById").toArray()) {
+		if (!entry.isString()) {
+			return false;
+		}
+	}
+	for (const auto &entry : root.value("removeExclusions").toArray()) {
+		if (!entry.isObject()) {
+			return false;
+		}
+		const auto item = entry.toObject();
+		if (!item.value("dialogId").isDouble()
+			|| !item.value("filterId").isString()) {
+			return false;
+		}
+	}
+	for (const auto &value : root.value("peers").toObject()) {
+		if (!value.isString()) {
+			return false;
+		}
+	}
+	return true;
 }
 
 void AppendChangeSummary(
@@ -133,6 +205,39 @@ TextWithEntities ChangeSummaryText(const ApplyChanges &changes) {
 				lt_count,
 				int(changes.peersToBeResolved.size()),
 				tr::rich));
+	}
+	const auto appendPreview = [&](const RegexFilter &filter, const QString &prefix) {
+		result.append('\n');
+		result.append(prefix);
+		result.append(QString::fromStdString(filter.text)
+			.left(120).replace('\n', ' ').replace('\r', ' '));
+	};
+	auto shown = 0;
+	for (const auto &filter : changes.newFilters) {
+		if (shown++ >= 10) {
+			break;
+		}
+		appendPreview(filter, u"[+] "_q);
+	}
+	for (const auto &filter : changes.filtersOverrides) {
+		if (shown++ >= 10) {
+			break;
+		}
+		appendPreview(filter, u"[~] "_q);
+	}
+	if (shown < 10 && !changes.removeFiltersById.empty()) {
+		const auto existing = AyuDatabase::getAllRegexFilters();
+		for (const auto &id : changes.removeFiltersById) {
+			if (shown++ >= 10) {
+				break;
+			}
+			const auto it = std::ranges::find_if(existing, [&](const RegexFilter &filter) {
+				return filter.id == id;
+			});
+			if (it != existing.end()) {
+				appendPreview(*it, u"[-] "_q);
+			}
+		}
 	}
 
 	return result;
@@ -291,55 +396,76 @@ void ResolveFilterBackupPeers(const std::vector<QString> &peerHints) {
 }
 
 void FilterUtils::importFromLink(const QString &link) {
-	if (link.isEmpty()) {
+	const auto url = QUrl(link);
+	const auto host = url.host();
+	if (!url.isValid() || url.scheme() != u"https"_q
+		|| host.isEmpty() || !url.userInfo().isEmpty()
+		|| (url.port(-1) != -1 && url.port(-1) != 443)
+		|| host.compare(u"localhost"_q, Qt::CaseInsensitive) == 0
+		|| host.endsWith(u".localhost"_q, Qt::CaseInsensitive)
+		|| host.endsWith(u".local"_q, Qt::CaseInsensitive)) {
 		Ui::Toast::Show(tr::ayu_FiltersToastFailFetch(tr::now));
 		return;
 	}
 
-	const auto request = QNetworkRequest(QUrl(link));
-	const auto reply = _manager->get(request);
-	const auto failed = std::make_shared<bool>(false);
-
-	connect(
-		reply,
-		&QNetworkReply::finished,
-		this,
-		[=]
-		{
-			if (*failed) {
-				reply->deleteLater();
+	QHostInfo::lookupHost(host, this, [=, this](const QHostInfo &info) {
+		if (info.error() != QHostInfo::NoError || info.addresses().isEmpty()) {
+			Ui::Toast::Show(tr::ayu_FiltersToastFailFetch(tr::now));
+			return;
+		}
+		for (const auto &address : info.addresses()) {
+			if (!address.isGlobal() || address.isPrivateUse()
+				|| address.isSiteLocal()
+				|| address.isInSubnet(QHostAddress(u"100.64.0.0"_q), 10)) {
+				Ui::Toast::Show(tr::ayu_FiltersToastFailFetch(tr::now));
 				return;
 			}
+		}
 
-			const auto responseData = reply->readAll();
+		auto request = QNetworkRequest(url);
+		request.setAttribute(
+			QNetworkRequest::RedirectPolicyAttribute,
+			QNetworkRequest::ManualRedirectPolicy);
+		request.setTransferTimeout(15000);
+		const auto reply = _manager->get(request);
+		reply->setReadBufferSize(kMaxFilterBackupBytes + 1);
+		const auto response = std::make_shared<QByteArray>();
+		const auto failed = std::make_shared<bool>(false);
 
-			const auto jsonString = QString::fromUtf8(responseData);
-
-			if (jsonString.isNull()) {
-				LOG(("FilterUtils: Invalid response."));
-				Ui::Toast::Show(tr::ayu_FiltersToastFailImport(tr::now));
-
-				reply->deleteLater();
-				return;
+		connect(reply, &QNetworkReply::readyRead, this, [=] {
+			response->append(reply->readAll());
+			if (response->size() > kMaxFilterBackupBytes) {
+				reply->abort();
 			}
-
-			handleResponse(jsonString.toUtf8());
-			reply->deleteLater();
 		});
-
-	connect(
-		reply,
-		&QNetworkReply::errorOccurred,
-		this,
-		[=](QNetworkReply::NetworkError e)
-		{
+		connect(reply, &QNetworkReply::errorOccurred, this,
+			[=, this](QNetworkReply::NetworkError error) {
+				if (!*failed) {
+					*failed = true;
+					gotFailure(error);
+				}
+			});
+		connect(reply, &QNetworkReply::finished, this, [=, this] {
+			reply->deleteLater();
 			if (*failed) {
 				return;
 			}
-			*failed = true;
-			gotFailure(e);
-			reply->deleteLater();
+			response->append(reply->readAll());
+			const auto status = reply->attribute(
+				QNetworkRequest::HttpStatusCodeAttribute).toInt();
+			if (response->size() > kMaxFilterBackupBytes
+				|| status < 200 || status >= 300) {
+				Ui::Toast::Show(tr::ayu_FiltersToastFailFetch(tr::now));
+				return;
+			}
+			handleResponse(*response);
 		});
+		QTimer::singleShot(15000, reply, [reply] {
+			if (reply->isRunning()) {
+				reply->abort();
+			}
+		});
+	});
 }
 
 void FilterUtils::publishFilters() {
@@ -393,6 +519,10 @@ void FilterUtils::publishFilters() {
 }
 
 void FilterUtils::importFromJson(const QByteArray &json) {
+	if (json.size() > kMaxFilterBackupBytes) {
+		Ui::Toast::Show(tr::ayu_FiltersToastFailImport(tr::now));
+		return;
+	}
 	auto error = QJsonParseError{0, QJsonParseError::NoError};
 	const auto document = QJsonDocument::fromJson(json, &error);
 
@@ -402,7 +532,7 @@ void FilterUtils::importFromJson(const QByteArray &json) {
 		).arg(error.errorString()));
 		return;
 	}
-	if (!document.isObject()) {
+	if (!document.isObject() || !ValidFilterBackup(document.object())) {
 		Ui::Toast::Show(tr::ayu_FiltersToastFailImport(tr::now));
 		LOG(("FilterUtils: not an object received in JSON"));
 		return;

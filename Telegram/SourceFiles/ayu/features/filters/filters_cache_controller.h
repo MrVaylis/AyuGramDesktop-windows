@@ -20,6 +20,8 @@ struct Group;
 
 namespace FiltersCacheController {
 
+inline constexpr auto kMaxRegexPatternBytes = 4096;
+
 using HashablePattern = FiltersController::HashablePattern;
 using PatternHasher = FiltersController::PatternHasher;
 using ReversiblePattern = FiltersController::ReversiblePattern;

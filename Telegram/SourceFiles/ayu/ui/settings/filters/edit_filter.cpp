@@ -55,6 +55,13 @@ std::vector<char> generate_uuid_bytes() {
 }
 
 bool validateRegex(const icu::UnicodeString& pattern, std::string& errorMsg) {
+	auto utf8Pattern = std::string();
+	pattern.toUTF8String(utf8Pattern);
+	if (utf8Pattern.size() > FiltersCacheController::kMaxRegexPatternBytes) {
+		errorMsg = "Expression is too long";
+		return false;
+	}
+
 	UErrorCode status = U_ZERO_ERROR;
 	UParseError parseError;
 

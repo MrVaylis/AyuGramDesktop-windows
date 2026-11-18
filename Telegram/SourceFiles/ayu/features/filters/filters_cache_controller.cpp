@@ -48,7 +48,8 @@ std::shared_ptr<const Cache> buildCache() {
 	std::unordered_map<ID, std::vector<ReversiblePattern>> byDialogId;
 
 	for (const auto &filter : filters) {
-		if (!filter.enabled || filter.text.empty()) {
+		if (!filter.enabled || filter.text.empty()
+			|| filter.text.size() > kMaxRegexPatternBytes) {
 			continue;
 		}
 
@@ -58,7 +59,7 @@ std::shared_ptr<const Cache> buildCache() {
 		auto status = U_ZERO_ERROR;
 		auto pattern = icu::RegexPattern::compile(icu::UnicodeString::fromUTF8(filter.text), flags, status);
 
-		if (!pattern) {
+		if (U_FAILURE(status) || !pattern) {
 			continue;
 		}
 

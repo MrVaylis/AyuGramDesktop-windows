@@ -763,7 +763,7 @@ ApplyChanges FilterUtils::prepareChanges(const QJsonObject &root) {
 				} else {
 					regex.dialogId = std::nullopt;
 				}
-				regex.enabled = filter.value("enabled").toBool();
+					regex.enabled = false;
 
 				regex.id = ParseFilterId(filter.value("id").toString());
 				if (regex.id.empty()) {
@@ -772,6 +772,19 @@ ApplyChanges FilterUtils::prepareChanges(const QJsonObject &root) {
 
 				regex.reversed = filter.value("reversed").toBool();
 				regex.text = filter.value("text").toString().toStdString();
+					if (regex.text.empty()
+						|| regex.text.size() > FiltersCacheController::kMaxRegexPatternBytes) {
+						continue;
+					}
+					auto status = U_ZERO_ERROR;
+					const auto pattern = std::unique_ptr<icu::RegexPattern>(
+						icu::RegexPattern::compile(
+							icu::UnicodeString::fromUTF8(regex.text),
+							UREGEX_MULTILINE | (regex.caseInsensitive ? UREGEX_CASE_INSENSITIVE : 0),
+							status));
+					if (U_FAILURE(status) || !pattern) {
+						continue;
+					}
 
 
 				auto it = std::ranges::find_if(existingFilters,

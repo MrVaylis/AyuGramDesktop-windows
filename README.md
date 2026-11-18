@@ -6,9 +6,9 @@
 
 ## This Windows fork
 
-Windows x64 builds for this fork are produced by the [AyuGram Windows workflow](https://github.com/MrVaylis/AyuGramDesktop-windows/actions/workflows/windows.yml).
-Use this repository's [releases](https://github.com/MrVaylis/AyuGramDesktop-windows/releases) for the portable ZIP and installer.
-See the [Windows build guide](docs/building-win-x64.md), [release notes](docs/windows-release-notes.md) and [integration report](docs/INTEGRATION_7_3_4.md).
+Build Windows x64 locally using the [Windows build guide](docs/building-win.md). GitHub Actions workflows are disabled in this fork.
+Previously published portable ZIPs and installers are available under [releases](https://github.com/MrVaylis/AyuGramDesktop-windows/releases).
+See the [release notes](docs/windows-release-notes.md) and [integration report](docs/INTEGRATION_7_3_4.md).
 
 This version adds copying messages with numeric custom emoji IDs and copying the ID of an individual emoji from its context menu.
 

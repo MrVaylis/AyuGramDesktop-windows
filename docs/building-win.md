@@ -1,52 +1,20 @@
 # Build instructions for Windows 64-bit
 
-## Windows CI and releases
-
-The single `.github/workflows/windows.yml` workflow builds Windows x64 with
-static Qt 6, MSVC 14.44 and Windows SDK 10.0.26100.0 on `windows-2022`.
-It runs all build-helper Python tests and the emoji ID, duplicate-group,
-registration-estimator and native Prisma regression tests before preparing
-Release-only dependencies with `skip-debug`.
-Dependency caches include the preparation scripts and exact compiler, SDK and
-Python versions in their key. Desktop object files are rebuilt from the checked
-out source, including the pinned UI, code generator and Prisma patches.
-
-Every push to `dev` builds a downloadable workflow artifact. To also publish
-that exact build, include `[release:v7.3.4-ayu.1]` in the final commit message,
-replacing the version with `AppVersionStrSmall` and incrementing the AyuGram
-revision for subsequent releases. A bare `[release]` uses a unique tag based on
-the source version and workflow run number. A `v*` tag, a branch named
-`release/v<version>-ayu.<revision>`, or a manual run with `publish_release`
-enabled can also publish. Pull requests never publish releases.
-
-Release publication requires successful compilation, a visible application
-window, clean application shutdown, and silent installer and uninstaller tests.
-The executable's Windows version resource must identify AyuGram and match the
-source version. The workflow publishes `AyuGram.exe`, a portable ZIP, a per-user
-installer, SHA-256 checksums, and a manifest identifying the source commit,
-submodules, applied UI patch and smoke-test result. The portable ZIP includes
-the existing `TelegramForcePortable` directory required by the client.
-
-The publish job verifies checksums and source identity, uploads assets to a
-draft, and publishes only after every upload succeeds. It refuses to replace a
-published release or a tag referring to another commit. Beta source versions
-are published as prereleases. The workflow uses the API identity already
-documented by AyuGram; no private signing key is required. These builds are
-unsigned and disable automatic updates so the upstream updater cannot replace
-this fork. Account login and emoji interactions require a separate signed-in
-desktop acceptance check; the automated startup check does not claim them.
+GitHub Actions workflows are disabled. Their definitions are archived in
+`.github/workflows-disabled/`. Follow the steps below for local Windows builds.
 
 - [Prepare folder](#prepare-folder)
 - [Install third party software](#install-third-party-software)
 - [Initialize terminal](#initialize-terminal)
 - [Clone source code and prepare libraries](#clone-source-code-and-prepare-libraries)
 - [Build the project](#build-the-project)
+- [Reuse prepared dependencies and compiler outputs](#reuse-prepared-dependencies-and-compiler-outputs)
 - [Troubleshooting](#troubleshooting)
 
 ## Prepare folder
 
 The build uses **Visual Studio 2022 17.14** or **Visual Studio 2026** with
-**MSVC 14.44** and **Windows SDK 10.0.26100.0**. CI uses Visual Studio 2022.
+**MSVC 14.44** and **Windows SDK 10.0.26100.0**.
 The source pins **Qt 6.11.2**; preparation builds the required static libraries.
 
 Install these Visual Studio components:
@@ -56,9 +24,9 @@ Install these Visual Studio components:
 - C++ ATL v14.44 for x86 and x64
 - Windows 11 SDK 10.0.26100.0
 
-Choose an empty build folder, for example `D:\TBuild`. The examples below refer
-to it as `BuildPath`. The repository, `Libraries` and `ThirdParty` must share
-that parent folder. Windows x64 dependencies live in `Libraries\win64`.
+Choose a build folder, for example `D:\TBuild`. The examples below refer
+to it as `BuildPath`. The dependency preparation script creates sibling directories
+next to the repository. Windows x64 dependencies live in `Libraries\win64`.
 
 ## Install third party software
 
@@ -127,6 +95,39 @@ For a Debug build, prepare dependencies without `skip-debug` and configure a
 separate checkout or build directory for Debug. The release-only cache omits
 Debug libraries.
 
+## Reuse prepared dependencies and compiler outputs
+
+`out` holds the generated Ninja project and the current build products.
+After clearing it, re-run `configure.bat` to reuse the existing
+`Libraries\win64` and `ThirdParty` directories. Skip preparation if both
+directories already contain the matching dependencies and toolchain.
+
+To configure with prepared directories in other locations, add these arguments
+to the same configure command. `AYUGRAM_LIBRARIES_DIR` selects the prepared
+libraries even when there is no sibling `Libraries` directory. Use a fresh build
+directory when changing the dependency roots so CMake doesn't reuse cached
+package paths.
+
+```batch
+-D "AYUGRAM_LIBRARIES_DIR=D:/Dependencies/Libraries/win64" ^
+-D "AYUGRAM_THIRD_PARTY_DIR=E:/Build Tools/ThirdParty"
+```
+
+For a compiler cache that survives recreating `out`, put
+[ccache](https://ccache.dev/download.html) 4.10 or newer on `PATH` or place
+`ccache.exe` in `ThirdParty\ccache`. Add `-DAYUGRAM_USE_CCACHE=ON` to the
+Ninja configure command and set `CCACHE_DIR` in the shell that runs the build.
+For example, use `set "CCACHE_DIR=D:\TBuild\.cache\ccache"`.
+Use `ccache --show-stats` to inspect hits and misses and
+`CCACHE_MAXSIZE` to set the disk limit (5 GiB by default).
+Ccache keeps Ninja's precompiled headers enabled. With its default settings,
+compilations that use those headers can fall back to MSVC. Ninja still reuses
+their object files on incremental builds in the same `out` directory.
+To cache those compilations as well, ccache supports
+`CCACHE_SLOPPINESS=pch_defines,time_macros`. Use that setting only when the
+build can reuse cached macro expansions, including values from `__DATE__`
+and `__TIME__`.
+
 ## Troubleshooting
 
 ### Missing libraries or the wrong architecture
@@ -141,5 +142,4 @@ compiled dependencies.
 Keep the full command output and rerun `win.bat silent qt6 skip-debug` after
 fixing the reported error. Completed stages have content-checked cache markers;
 incomplete stages are rebuilt. Use the dependency versions pinned by this
-checkout. CI preserves diagnostic artifacts when a later client build or
-startup test fails.
+checkout.

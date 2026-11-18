@@ -93,7 +93,7 @@ class WindowsReleaseTests(unittest.TestCase):
             "passed": True,
             "sha256": release.digest(binary_root / "AyuGram.exe"),
             "installer_sha256": release.digest(installer),
-            "qt_version": "6.11.2",
+            "qt_version": "6.11.3",
         }))
         output = self.root / "artifacts"
         with mock.patch.object(release, "git", side_effect=lambda root, *args: SOURCE if args[0] == "rev-parse" else ""), mock.patch.dict(release.os.environ, {"GITHUB_REPOSITORY": "owner/repo", "GITHUB_RUN_ID": "1"}):

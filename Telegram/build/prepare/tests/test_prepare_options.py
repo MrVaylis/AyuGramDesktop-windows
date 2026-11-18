@@ -19,7 +19,7 @@ def functions(platform='win64', options=()):
         re=re, os=os, keysLoc='cache_keys',
         win=platform != 'mac', win32=platform == 'win32',
         win64=platform == 'win64', winarm=platform == 'winarm',
-        mac=platform == 'mac', options=options, qt='6.11.2',
+        mac=platform == 'mac', options=options, qt='6.11.3',
         branch='v$QT', modifiedEnv={}, qtAngleCmake='/qt-angle.cmake',
         computeFileHash=lambda path: 'content-hash',
         subprocess=types.SimpleNamespace(run=lambda *a, **k:
@@ -80,8 +80,8 @@ class PrepareOptionsTests(unittest.TestCase):
     def test_qt_rebuild_removes_its_actual_install_directory(self):
         for name, commands in stage_commands('win64', ('skip-debug',)):
             if name.startswith('qt_'):
-                self.assertIn('rmdir /Q /S "%LIBS_DIR%\\Qt-6.11.2"', commands)
-                self.assertNotIn('rmdir /Q /S "%LIBS_DIR%\\Qt6.11.2"', commands)
+                self.assertIn('rmdir /Q /S "%LIBS_DIR%\\Qt-6.11.3"', commands)
+                self.assertNotIn('rmdir /Q /S "%LIBS_DIR%\\Qt6.11.3"', commands)
 
     def test_debug_guard_does_not_enable_wrong_platform(self):
         commands = 'win:\ndebug:\n debug-build\nenddebug:\n release-build\nmac:\n mac-build\n'

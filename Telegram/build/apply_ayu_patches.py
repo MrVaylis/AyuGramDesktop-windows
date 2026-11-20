@@ -9,7 +9,7 @@ from patch_prisma import main as patch_prisma
 PATCHES = (
     (
         "Telegram/lib_ui",
-        "caaa3f1eb20bab7ef838c6aea35db2397e8f3f07",
+        "562381f7537c60a2bec7b0fea37bdb14392bfbf3",
         "patches/lib_ui.patch",
     ),
     (

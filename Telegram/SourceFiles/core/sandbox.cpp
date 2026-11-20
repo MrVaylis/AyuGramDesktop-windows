@@ -35,9 +35,9 @@ https://github.com/telegramdesktop/tdesktop/blob/master/LEGAL
 #include "ui/effects/animations.h"
 #include "ui/style/style_core_palette.h"
 
-#ifdef Q_OS_MAC
+#ifdef Q_OS_MACOS
 #include "platform/mac/global_menu_mac.h"
-#endif // Q_OS_MAC
+#endif // Q_OS_MACOS
 
 #ifdef Q_OS_WIN
 #include <timeapi.h>
@@ -122,9 +122,9 @@ bool Sandbox::QuitOnStartRequested = false;
 Sandbox::Sandbox(int &argc, char **argv)
 : QApplication(argc, argv)
 , _mainThreadId(QThread::currentThreadId()) {
-#ifdef Q_OS_MAC
+#ifdef Q_OS_MACOS
 	Platform::CreateGlobalMenu();
-#endif // Q_OS_MAC
+#endif // Q_OS_MACOS
 #ifdef Q_OS_WIN
 	// Otherwise timer granularity stays at ~15.6ms and the 8ms animation
 	// tick only fires every second 120Hz vblank.
@@ -366,9 +366,9 @@ void Sandbox::setupScreenScale() {
 }
 
 Sandbox::~Sandbox() {
-#ifdef Q_OS_MAC
+#ifdef Q_OS_MACOS
 	Platform::DestroyGlobalMenu();
-#endif // Q_OS_MAC
+#endif // Q_OS_MACOS
 #ifdef Q_OS_WIN
 	timeEndPeriod(1);
 #endif // Q_OS_WIN

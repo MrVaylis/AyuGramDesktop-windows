@@ -59,8 +59,6 @@ thirdPartyDir = os.path.realpath(os.path.join(rootDir, 'ThirdParty'))
 usedPrefix = os.path.realpath(os.path.join(libsDir, 'local'))
 
 optionsList = [
-    'qt5',
-    'qt6',
     'skip-release',
     'skip-debug',
     'tools-only',
@@ -567,12 +565,12 @@ if customRunCommand:
 stage('patches', """
     git clone https://github.com/desktop-app/patches.git
     cd patches
-    git checkout 13b4eb3dc1b8ef404b4ab04750e0fd7aafbe06c2
+    git checkout 69f23a834024d6064da209076151393582b3c966
 mac:
     sed -i '' "s/10.13/$MACOSX_DEPLOYMENT_TARGET/g" macos_meson_*.txt
     git clone https://github.com/desktop-app/qt6_highsierra_patches.git qt6_highsierra
     cd qt6_highsierra
-    git checkout 7387476bb3b7200d3b044015696cb3c28f78593c
+    git checkout df21d71753b075f205e595effb7575b3435012c6
 """)
 
 stage('msys64', """
@@ -1246,8 +1244,9 @@ stage('regex', """
 """)
 
 stage('ffmpeg', """
-    git clone -b n8.1.3 https://github.com/FFmpeg/FFmpeg.git ffmpeg
+    git clone -b release/8.1 https://github.com/FFmpeg/FFmpeg.git ffmpeg
     cd ffmpeg
+    git checkout e22a4510c982b048945052bd6a503475014b7ba0
 depends:patches/ffmpeg/*.patch
 win:
     for %%i in (..\\patches\\ffmpeg\\*.patch) do (
@@ -1600,7 +1599,8 @@ release:
     ninja -C out/Release%FolderPostfix% common crash_generation_client exception_handler
     cd tools\\windows\\dump_syms
     gyp dump_syms.gyp --format=msvs
-    msbuild -m dump_syms.vcxproj /property:Configuration=Release /property:Platform="x64" %ToolsetProp%
+    # dump_syms requires ATL; not used by Telegram.
+    if not "%SKIP_DUMPSYMS%"=="1" msbuild -m dump_syms.vcxproj /property:Configuration=Release /property:Platform="x64" %ToolsetProp%
 win:
     deactivate
 mac:
@@ -1670,13 +1670,13 @@ release:
     lipo -create Release.arm64/libcrashpad_client.a Release.x86_64/libcrashpad_client.a -output Release/libcrashpad_client.a
 """)
 
-if win and qt >= '6':
+if win:
     # Windows 7 and 8 support for qtbase, and the ANGLE backend Qt 6 dropped.
     stage('qt6_windows7', """
 win32_win64:
     git clone https://github.com/desktop-app/qt6_windows7_patches.git qt6_windows7
     cd qt6_windows7
-    git checkout 9ce1ffe051161a22f7e78f715b042c773f868e59
+    git checkout fd8d5035b25bce04b849b6f87818ad3a2ba66c7d
 """)
 
 if win:
@@ -1784,6 +1784,8 @@ depends:patches/qtbase_""" + qt + """/*.patch
 depends:patches/qtsvg_""" + qt + """/*.patch
 win32_win64:
 depends:qt6_windows7/*.patch
+mac:
+depends:patches/qt6_highsierra/*.patch
 version:""" + computeFileHash(qtAngleCmake) + """
 mac:
     if [ -d "../patches/qt6_highsierra" ]; then
@@ -1866,8 +1868,6 @@ win_asserts:
 win:
     """ + removeDir('"%LIBS_DIR%\\Qt-' + qt + '"') + """
     SET MOZJPEG_DIR=%LIBS_DIR%\\mozjpeg
-    SET OPENSSL_DIR=%LIBS_DIR%\\openssl3
-    SET OPENSSL_LIBS_DIR=%OPENSSL_DIR%\\out
     SET ZLIB_LIBS_DIR=%LIBS_DIR%\\zlib
     SET WEBP_DIR=%LIBS_DIR%\\libwebp
     SET LCMS2_DIR=%LIBS_DIR%\\liblcms2
@@ -1880,7 +1880,7 @@ win:
         -static ^
         -static-runtime ^
         -feature-c++20 ^
-        -openssl linked ^
+        -no-openssl ^
         -system-webp ^
         -system-zlib ^
         -system-libjpeg ^
@@ -1899,12 +1899,6 @@ win32_win64:
         -D CMAKE_PROJECT_QtBase_INCLUDE:FILEPATH="%QT_ANGLE_CMAKE%" ^
         -D DESKTOP_APP_ANGLE_DIR:PATH="%LIBS_DIR%\\tg_angle" ^
 win:
-        -D OPENSSL_FOUND=1 ^
-        -D OPENSSL_INCLUDE_DIR="%OPENSSL_DIR%\\include" ^
-        -D LIB_EAY_DEBUG="%OPENSSL_LIBS_DIR%.dbg\\libcrypto.lib" ^
-        -D SSL_EAY_DEBUG="%OPENSSL_LIBS_DIR%.dbg\\libssl.lib" ^
-        -D LIB_EAY_RELEASE="%OPENSSL_LIBS_DIR%\\libcrypto.lib" ^
-        -D SSL_EAY_RELEASE="%OPENSSL_LIBS_DIR%\\libssl.lib" ^
         -D JPEG_FOUND=1 ^
         -D JPEG_INCLUDE_DIR="%MOZJPEG_DIR%" ^
         -D JPEG_LIBRARY_DEBUG="%MOZJPEG_DIR%\\Debug\\jpeg-static.lib" ^
@@ -1934,7 +1928,7 @@ enddebug:
 stage('tg_owt', """
     git clone https://github.com/desktop-app/tg_owt.git
     cd tg_owt
-    git checkout 49ceed3985d8626b3a24bdb14d9c593a115cc6e8
+    git checkout 642ddb107b42da7c8d152401b71cd429475e5266
     git submodule update --init --recursive
 win:
     SET MOZJPEG_PATH=$LIBS_DIR/mozjpeg
@@ -2145,14 +2139,14 @@ release:
 tlottieRevision = '92df98dc20'
 walletEngineRevision = 'e59e0d89d7ee90c388bf36e3334c5b276f396697'
 stage('tlottie', """
-version: 2
+version: 3
     git clone https://github.com/dkaraush/tlottie.git
     cd tlottie
     git checkout """ + tlottieRevision + """
 """)
 
 stage('wallet-engine', """
-version: 2
+version: 3
 depends:patches/wallet-engine.patch
 win:
     SET "GIT_LFS_SKIP_SMUDGE=1"
@@ -2181,7 +2175,7 @@ win_mac:
 # flushes a cache whose generated source the CI prune had already deleted.
 # The wallet-engine patch rewrites those sources, so it is a dependency here.
 stage('tdesktop_rust', """
-version: 2.""" + tlottieRevision + '.' + walletEngineRevision + """
+version: 3.""" + tlottieRevision + '.' + walletEngineRevision + """
 depends:patches/wallet-engine.patch
 win:
     SET "RUSTUP_HOME=%THIRDPARTY_DIR%\\rust\\rustup"

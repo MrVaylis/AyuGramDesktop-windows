@@ -4,7 +4,7 @@ Run `python Telegram/build/apply_ayu_patches.py` from the repository root after 
 
 | Dependency | Upstream commit | Local changes |
 | --- | --- | --- |
-| lib_ui | `caaa3f1eb20bab7ef838c6aea35db2397e8f3f07` | AyuGram UI settings, local emoji entities, streamer menu hook, wide chat styling, fonts and controls; People-11 Windows frame pacing, smooth scrolling, and asynchronous emoji compression, rebased onto upstream scroll APIs. |
+| lib_ui | `562381f7537c60a2bec7b0fea37bdb14392bfbf3` | AyuGram UI settings, local emoji entities, streamer menu hook, wide chat styling, fonts and controls; People-11 Windows frame pacing, smooth scrolling, and asynchronous emoji compression, rebased onto upstream scroll APIs. |
 | codegen | `dbd1d53137cd581cfdbeebe93bcaf54abf55ec74` | AyuGram language-key scanning, cache version 2, and runtime wide-chat style values. |
 | libprisma | `94640c63c20eacdf70e37e23198d9ab53c802ebd` | Upstream now provides the equivalent 32-level recursion guard and a bounded search budget; the patch helper verifies them without altering the source. |
 

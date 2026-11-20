@@ -192,34 +192,6 @@ auto PersonalChannelController::chosen() const
 	return _chosen.events();
 }
 
-Window::SessionController *ApplyAccountIndex(
-		not_null<Window::SessionController*> controller,
-		int accountIndex) {
-	if (accountIndex <= 0) {
-		return nullptr;
-	}
-	const auto list = Core::App().domain().orderedAccounts();
-	if (accountIndex > int(list.size())) {
-		return nullptr;
-	}
-	const auto account = list[accountIndex - 1];
-	if (account == &controller->session().account()) {
-		return controller;
-	} else if (const auto window = Core::App().windowFor({ account })) {
-		if (&window->account() != account) {
-			Core::App().domain().maybeActivate(account);
-			if (&window->account() != account) {
-				return nullptr;
-			}
-		}
-		const auto session = window->sessionController();
-		if (session) {
-			return session;
-		}
-	}
-	return nullptr;
-}
-
 void SavePersonalChannel(
 		not_null<Window::SessionController*> window,
 		ChannelData *channel) {
@@ -659,7 +631,6 @@ bool ResolveUsernameOrPhone(
 		match->captured(1),
 		qthelp::UrlParamNameTransform::ToLower);
 
-	// A dApp link must not choose the account, so this precedes "acc".
 	if (!params.value(u"domain"_q).compare(
 			u"sendgrams"_q,
 			Qt::CaseInsensitive)) {
@@ -681,6 +652,14 @@ bool ResolveUsernameOrPhone(
 				params.value(u"acc"_q)));
 			return false;
 		}
+	}
+
+	// Any parameter, like start or startapp, still goes to the bot.
+	if (params.size() == 1
+		&& Wallet::OpenWalletInsteadOfOldBot(
+			controller,
+			params.value(u"domain"_q))) {
+		return true;
 	}
 
 	const auto domainParam = params.value(u"domain"_q);

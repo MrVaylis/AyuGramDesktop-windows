@@ -641,19 +641,6 @@ bool ResolveUsernameOrPhone(
 		}
 	}
 
-	if (params.contains(u"acc"_q)) {
-		const auto switched = ApplyAccountIndex(
-			controller,
-			params.value(u"acc"_q).toInt());
-		if (switched) {
-			controller = switched;
-		} else {
-			controller->showToast(u"Could not activate account %1."_q.arg(
-				params.value(u"acc"_q)));
-			return false;
-		}
-	}
-
 	// Any parameter, like start or startapp, still goes to the bot.
 	if (params.size() == 1
 		&& Wallet::OpenWalletInsteadOfOldBot(
